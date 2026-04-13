@@ -23,10 +23,11 @@ config.py    — 類別 （無類別，全域常數）
 | QR_REAL_SIZE_CM | 5.0 | QR code 真實尺寸（公分） |
 | MAX_DISTANCE_M | 7.0 | 拍攝距離上限警告閾值（公尺） |
 | CONF_THRESHOLD | 0.65 | YOLO 信心度閾值，低於此值的框不採用 |
-| DBH_HEIGHT_M | 1.3 | 胸徑測量高度（公尺），從 mask 最底部往上計算，預設符合林業標準 1.3m |
+| MIN_MARKER_PX | 30 | QR code 最小有效像素寬度，低於此值視為太遠、比例尺不可信 |
+| CAMERA_HEIGHT_M | 1.3 | 胸徑測量高度（公尺），從 mask 最底部往上計算，預設符合林業標準 1.3m |
 | DBH_SLICE_COUNT | 20 | geometry.py 計算樹徑時的水平切片數量 |
 | MIN_VALID_SLICES | 8 | 最少有效切片數，低於此值視為測量失敗 |
-| SIMILARITY_THRESHOLD | 0.80 | 雙驗證相似度門檻（80%），超過則輸出警告 |
+| SIMILARITY_THRESHOLD | 0.80 | 雙驗證相似度門檻（80%），低於則輸出警告 |
 | MODEL_PATH | "best.pt" | YOLO 模型權重檔路徑 |
 | OUTPUT_DIR | "~/Desktop/results" | 結果輸出目錄（預設桌面，不污染專案） |
 
@@ -81,13 +82,13 @@ src/models.py    — 類別 MeasurementResult
 
 偵測層　— 負責「找到東西在哪裡」，不做任何計算
 src/trunk_detector.py    — 類別 TrunkDetector
-封裝 YOLOv11 模型，偵測樹幹並回傳像素寬度，包含邊緣完整性檢查。
-  朋友  
+封裝 YOLOv11 模型，偵測樹幹並回傳輪廓點與邊界框，包含邊緣完整性檢查。
+  輔負責  
 | 方法 | 說明 |
 | --- | --- |
 | __init__(model_path, conf) | 載入 YOLO 模型，設定信心度閾值（從 config.py 傳入） |
-| detect(image) | 執行推論，回傳 masks.xy 與信心度分數 |
-| get_trunk_pixel_width(mask) | 從分割遮罩（mask）計算樹幹像素寬度 |
+| detect(image) | 執行推論，回傳 dict {"masks_xy": 輪廓點陣列, "confidence": 信心度, "box": 邊界框 [x1,y1,x2,y2]}；偵測失敗回傳 None |
+| get_trunk_pixel_width(mask) | 從輪廓點陣列計算樹幹最寬處的像素距離（最右 x − 最左 x） |
 | is_trunk_complete(box, img_shape) | 檢查偵測框是否碰到影像邊緣，判斷樹幹是否完整入鏡 |
 
 src/qr_detector.py    — 類別 QRDetector
@@ -105,24 +106,24 @@ src/geometry.py    — 類別 GeometryEngine
   我新增  
 | 方法 | 說明 |
 | --- | --- |
-| get_diameter_at_height(trunk_pts, target_y, scale) | 從 mask 最底部往上 1.3m 對應的 y 像素位置（target_y = mask 最低點 y − DBH_HEIGHT_M 對應像素數）取 20 條水平切片，用 IQR 過濾異常值後取均值，回傳 {diameter_cm, std_cm, confidence} |
+| compute_target_y(trunk_pts, scale) | 根據樹幹輪廓點與比例尺，計算胸高（1.3m）對應的影像 y 座標；比例尺或輪廓點無效時回傳 -1.0 |
+| get_diameter_at_height(trunk_pts, target_y, scale) | 在 target_y 位置取 20 條水平切片，用 IQR 過濾異常值後取均值，回傳 {diameter_cm, std_cm, confidence} |
 
 src/qr_calculator.py    — 類別 QRCalculator
-方法一的計算邏輯。以 QR code 作為比例尺換算樹幹直徑，與偵測模組（qr_detector.py）分開，讓計算邏輯可獨立測試。
+方法一的計算邏輯。以 QR code 作為比例尺換算比例尺（cm/px），與偵測模組（qr_detector.py）分開，讓計算邏輯可獨立測試。
   朋友  
 | 方法 | 說明 |
 | --- | --- |
-| __init__(qr_real_size_cm) | 設定 QR code 真實尺寸（由 config.QR_REAL_SIZE_CM 傳入） |
-| calculate(trunk_px, qr_px) | 回傳樹徑（cm）：trunk_px × (QR_REAL_SIZE_CM ÷ qr_px) |
+| compute_scale(qr_pixel_width) | 回傳比例尺（cm/px）：QR_REAL_SIZE_CM ÷ qr_pixel_width；像素寬度無效或低於 MIN_MARKER_PX 時回傳 0.0 |
 
 src/focal_calculator.py    — 類別 FocalCalculator
 方法二的計算邏輯。根據針孔相機模型，利用使用者輸入的焦距與距離換算樹幹直徑，作為 QR code 失靈時的備援。
-  朋友  
+  輔負責  
 | 方法 | 說明 |
 | --- | --- |
-| __init__(focal_mm, sensor_width_mm, img_width_px) | 初始化相機參數（使用者輸入） |
+| __init__(focal_mm, sensor_width_mm, img_width_px) | 初始化時計算並儲存像素焦距：focal_px = (focal_mm ÷ sensor_width_mm) × img_width_px |
 | calculate(trunk_px, distance_m) | 回傳樹徑（cm）：trunk_px × distance_cm ÷ focal_px |
-| _to_focal_px() | 將 mm 焦距轉換為像素焦距（內部使用） |
+| _to_focal_px() | 無參數，直接回傳 __init__ 已計算好的 self._focal_px，供 main.py 換算比例尺使用 |
 
 
 驗證層　— 比較兩種方法的結果，判斷輸出狀態
@@ -133,7 +134,7 @@ src/validator.py    — 類別 Validator
 | --- | --- |
 | __init__(threshold) | 設定相似度門檻（預設 0.80，由 config.py 傳入） |
 | validate(result_a, result_b) | QR code 成功時比較兩方法差異率，回傳 MeasurementResult；QR code 失靈時直接以方法二輸出 |
-| _similarity(a, b) | 計算差異率 = |a-b| ÷ max(a,b)（內部使用） |
+| _similarity(a, b) | 計算相似度 = 1 − |a-b| ÷ max(a,b)，回傳 0.0~1.0（內部使用） |
 
 
 Validator 輸出狀態碼說明
@@ -147,45 +148,47 @@ Validator 輸出狀態碼說明
 輸入 / 輸出層　— 處理使用者互動、圖片繪製、檔案存取
 src/input_handler.py    — 類別 InputHandler
 負責所有使用者輸入介面，包含圖片選擇視窗、數值輸入與驗證。所有輸入驗證集中於此，其他模組不處理輸入錯誤。
-  朋友  
+  輔負責  
 | 方法 | 說明 |
 | --- | --- |
-| get_image_path() | 彈出 tkinter 視窗供使用者選擇圖片（支援 .jpg、.png 等格式） |
-| get_camera_params() | 詢問焦距（mm）與感光元件寬度（mm），用於方法二計算 |
-| get_distance() | 詢問拍攝距離，若超過 MAX_DISTANCE_M 顯示警告但不強制阻擋 |
-| _validate_distance(d) | 距離合法性檢查，回傳布林值（內部使用） |
+| get_image_path() | 彈出 tkinter 視窗供使用者選擇圖片（支援 .jpg、.jpeg、.png、.bmp） |
+| get_camera_params() | 用對話框詢問焦距（mm）與感光元件寬度（mm），回傳 tuple(focal_mm, sensor_w) |
+| get_distance() | 詢問拍攝距離（公尺），若超過 MAX_DISTANCE_M 顯示警告但不強制阻擋 |
+| _validate_distance(d) | 距離合法性檢查（d > 0），回傳布林值（內部使用） |
+| _ask_value(root, title, prompt) | 彈出單行文字輸入對話框，回傳使用者輸入的字串（內部使用） |
 
 src/visualizer.py    — 類別 Visualizer
-負責在圖片上繪製偵測結果。以 draw() 作為統一入口，內部分工呼叫三個私有方法。可直接從舊專案修改延伸，擴充顯示 confidence 與 warnings。
+負責在圖片上繪製偵測結果。以 draw() 作為統一入口，內部分工呼叫三個私有方法。
   共用調整  
 | 方法 | 說明 |
 | --- | --- |
-| draw(image, detection, result) | 統一入口，依序呼叫以下三個內部方法完成完整標注 |
-| _draw_mask(image, mask) | 繪製 YOLO Instance Segmentation 分割遮罩（半透明覆蓋） |
-| _draw_diameter_line(image, box) | 從 mask 最底部往上 1.3m 對應位置繪製紅色水平測量線 |
-| _draw_status_label(image, result) | 在圖片右上角標註狀態文字、樹徑數值、confidence 分數 |
+| draw(image, detection, result) | 統一入口，依序呼叫以下三個內部方法完成完整標注，回傳繪製後的影像 |
+| _draw_mask(image, trunk_pts) | 繪製 YOLO Instance Segmentation 分割遮罩（半透明綠色覆蓋 + 輪廓線） |
+| _draw_diameter_line(image, trunk_pts) | 在輪廓垂直中點位置繪製紅色水平測量線與端點圓點 |
+| _draw_status_label(image, result) | 在圖片右上角標註狀態文字、樹徑數值、方法與 confidence 分數 |
 
 src/file_manager.py    — 類別 FileManager
 負責所有檔案存取。輸出目錄由 config.OUTPUT_DIR 控制，結果儲存於使用者指定路徑，不污染專案目錄。CSV 紀錄每次測量自動累積，不覆寫。
-  朋友  
+  輔負責  
 | 方法 | 說明 |
 | --- | --- |
-| __init__(output_dir) | 讀取 OUTPUT_DIR，若資料夾不存在則自動建立 |
-| save_image(image, source_path) | 儲存標注後圖片，以「原始檔名_時間戳.png」命名 |
-| save_csv(result) | 將 MeasurementResult 物件新增一列至 measurements.csv（含所有欄位） |
+| __init__(output_dir) | 展開 ~ 路徑，若資料夾不存在則自動建立，並設定 measurements.csv 的存放位置 |
+| save_image(image, source_path) | 儲存標注後圖片，以「原始檔名_時間戳.png」命名，固定存成 PNG |
+| save_csv(result) | 將 MeasurementResult 物件新增一列至 measurements.csv（append 模式，不覆寫舊資料） |
 
 
 選配模組　— 架構保留，核心流程穩定後再決定是否實作
 src/error_checker.py    — 類別 ErrorChecker
-在輸出前自動偵測潛在問題，偵測到問題後寫入 MeasurementResult.warnings 列表，不直接阻擋輸出。目前建立空類別，等核心流程穩定後再補實作。
+在輸出前自動偵測潛在問題，偵測到問題後寫入 MeasurementResult.warnings 列表，不直接阻擋輸出。
   我新增  
 | 方法 | 說明 |
 | --- | --- |
-| check_marker_tilt(contour) | 偵測 QR code 歪斜角度是否超過 15°，超過則寫入 warnings |
+| check_marker_tilt(contour) | 偵測 QR code 歪斜角度是否超過 15°，超過則寫入 warnings（需傳入 QR code 輪廓點陣列） |
 | check_marker_pixel_size(contour) | 偵測 QR code 在畫面中的像素大小是否低於 MIN_MARKER_PX，過小則換算不準確 |
-| check_trunk_completeness(mask, img_shape) | 偵測樹幹分割遮罩是否被影像邊緣裁切，是則寫入 warnings |
-目前程式碼內容（暫時留空）：
-class ErrorChecker:     pass  # TODO: 核心流程穩定後實作
+| check_trunk_completeness(mask, img_shape) | 偵測樹幹輪廓是否被影像左右邊緣裁切（容差 10px），是則寫入 warnings |
+
+注意：check_marker_tilt 與 check_marker_pixel_size 需傳入 QR code 輪廓點陣列（np.ndarray）。
+目前 QRDetector.detect() 只回傳像素寬度（float），待 QRDetector 改為同時回傳 polygon 後再於 main.py 中接上。
 
 
 自動生成目錄　— 由程式產生，不進版控
@@ -218,15 +221,15 @@ training_files/    — 類別 （資料夾）
 | .gitignore | （設定檔） | 朋友 | 根目錄 |
 | src/__init__.py | （空檔案） | 朋友 | src 套件 |
 | src/models.py | MeasurementResult | 共用調整 | 資料模型層 |
-| src/trunk_detector.py | TrunkDetector | 朋友 | 偵測層 |
+| src/trunk_detector.py | TrunkDetector | 輔負責 | 偵測層 |
 | src/qr_detector.py | QRDetector | 朋友 | 偵測層 |
 | src/geometry.py | GeometryEngine | 我新增 | 計算層 |
 | src/qr_calculator.py | QRCalculator | 朋友 | 計算層 |
-| src/focal_calculator.py | FocalCalculator | 朋友 | 計算層 |
+| src/focal_calculator.py | FocalCalculator | 輔負責 | 計算層 |
 | src/validator.py | Validator | 共用調整 | 驗證層 |
-| src/input_handler.py | InputHandler | 朋友 | 輸入輸出層 |
+| src/input_handler.py | InputHandler | 輔負責 | 輸入輸出層 |
 | src/visualizer.py | Visualizer | 共用調整 | 輸入輸出層 |
-| src/file_manager.py | FileManager | 朋友 | 輸入輸出層 |
+| src/file_manager.py | FileManager | 輔負責 | 輸入輸出層 |
 | src/error_checker.py | ErrorChecker | 我新增 | 選配 |
 | measured_result/ | （自動產生） | 朋友 | 輸出目錄 |
 | training_files/ | （資料夾） | 朋友 | 訓練檔案 |

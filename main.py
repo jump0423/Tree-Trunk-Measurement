@@ -113,8 +113,13 @@ def main():
     # 作為對照或備援
 
     focal_calc = FocalCalculator(focal_mm, sensor_w, img_w)
-    scale_b    = focal_calc._to_focal_px() / (distance_m * 100)
-    # 注意：上面這行之後 Morris 寫好 FocalCalculator 後可能需要調整
+    # 比例尺（cm/px）= 距離(cm) ÷ 焦距(px)
+    # 注意：分子是距離，分母是焦距，不能寫反
+    focal_px = focal_calc._to_focal_px()
+    if focal_px <= 0:
+        print("錯誤：焦距計算失敗（請確認感光元件寬度輸入是否正確），程式結束")
+        return
+    scale_b = (distance_m * 100) / focal_px
 
     # ② 同樣用 compute_target_y 算出胸高 y 座標
     target_y_b = geometry.compute_target_y(trunk_pts, scale_b)
@@ -134,8 +139,11 @@ def main():
 
     if qr_detector.is_detected():
         # 只有 QR code 偵測成功才能檢查 QR code 的狀態
-        warnings += checker.check_marker_tilt(qr_result)
-        warnings += checker.check_marker_pixel_size(qr_result)
+        # qr_result 是 float（像素寬度），error_checker 需要輪廓點陣列
+        # 因此先用 QRDetector 內部儲存的 _last_pixel_width 跳過輪廓檢查，
+        # 改用 detection["box"] 做樹幹完整性檢查即可
+        # （QR code 歪斜與大小的精確檢查需改由 qr_detector 回傳 polygon 再做）
+        pass  # TODO：待 QRDetector 回傳 polygon 後再補實作
 
     warnings += checker.check_trunk_completeness(trunk_pts, image.shape)
 

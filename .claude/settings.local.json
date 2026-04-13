@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/user/OneDrive/Desktop/品管圈/**)",
+      "Bash(python -c ':*)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\user\\OneDrive\\Desktop\\品管圈"
+    ]
+  }
+}

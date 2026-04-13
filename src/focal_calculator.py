@@ -1,120 +1,112 @@
 #輔負責
-import config  # 讀取全域設定（如 QR code 真實尺寸）
-
-
-# ════════════════════════════════════════════════════════════════
-#  焦距計算模組
+# =============================================================
+# focal_calculator.py — 焦距公式計算器（方法二備援）
 #
-#  本模組負責「方法二」：利用相機焦距公式換算樹幹的真實直徑。
+# 當 QR code 偵測失敗時，改用「針孔相機模型」換算樹幹直徑。
 #
-#  核心公式（相似三角形原理）：
+# 針孔相機模型核心公式（相似三角形原理）：
 #
-#      真實尺寸(cm)       焦距(px)
-#      ──────────────  =  ──────────────
-#      距離(cm)           像素尺寸(px)
+#   真實寬度(cm)     距離(cm)
+#   ──────────── = ──────────────
+#   像素寬度(px)   焦距像素值(px)
 #
-#  整理後：
-#      焦距(px) = 像素尺寸(px) × 距離(cm) / 真實尺寸(cm)
-#      真實尺寸(cm) = 像素尺寸(px) × 距離(cm) / 焦距(px)
+#   整理後：
+#   真實寬度 = 像素寬度 × 距離(cm) ÷ 焦距像素值(px)
 #
-#  流程：
-#      1. 用「已知尺寸的 QR code」在影像中的像素大小，算出相機焦距
-#      2. 再用同一焦距，把樹幹的像素寬度換算成真實公分數
-# ════════════════════════════════════════════════════════════════
+#   焦距像素值(px) = (焦距mm ÷ 感光元件寬mm) × 影像寬度px
+#
+# 流程：
+#   1. __init__ 時把 mm 單位的焦距轉成像素單位並存入 self._focal_px
+#   2. _to_focal_px() 無參數，直接回傳已計算好的 self._focal_px
+#   3. calculate() 用 self._focal_px + 使用者輸入的距離計算樹幹直徑
+# =============================================================
 
 
-def calculate_focal_length(qr_pixel_size, distance_cm):
+class FocalCalculator:
     """
-    步驟一：用 QR code 反推相機焦距（單位：像素）。
+    焦距公式計算器（方法二）
 
-    原理：
-        QR code 的真實尺寸已知（config.QR_REAL_SIZE_CM），
-        拍攝距離由使用者提供，QR code 在影像中的像素大小由偵測取得。
-        代入公式即可算出此次拍攝的等效焦距。
+    使用相機的物理參數（焦距、感光元件尺寸）來換算真實距離。
+    作為 QR code 比例尺失靈時的備援方法。
 
-    參數：
-        qr_pixel_size (float)：QR code 在影像中的寬度，單位：像素
-        distance_cm   (float)：拍攝時與 QR code 的距離，單位：公分
-
-    回傳值：
-        float：相機焦距，單位：像素
-        None ：若輸入值不合法（為 0 或負數）則回傳 None
+    屬性：
+        _focal_px (float)：相機焦距，單位為像素（由 __init__ 計算並儲存）
     """
 
-    # 防止除以零：像素大小不可為 0
-    if qr_pixel_size <= 0:
-        print("[警告] QR code 像素尺寸不合法，無法計算焦距")
-        return None
+    def __init__(self, focal_mm: float, sensor_width_mm: float, img_width_px: int):
+        """
+        初始化計算器，把 mm 焦距換算成像素焦距後儲存。
 
-    # 套用公式：焦距 = 像素尺寸 × 距離 / 真實尺寸
-    focal_length = (qr_pixel_size * distance_cm) / config.QR_REAL_SIZE_CM
+        換算公式：
+            焦距(px) = 焦距(mm) ÷ 感光元件寬(mm) × 影像寬度(px)
 
-    return focal_length
+        參數：
+            focal_mm        (float)：相機鏡頭焦距，單位：毫米（mm）
+                                     手機約 3~6mm，標準鏡頭約 35~50mm
 
+            sensor_width_mm (float)：感光元件的實體寬度，單位：毫米（mm）
+                                     全片幅約 36mm，APS-C 約 23.5mm
 
-def calculate_diameter_method_b(trunk_pixel_width, focal_length, distance_cm):
-    """
-    步驟二：用焦距公式算出樹幹的真實直徑（方法二）。
+            img_width_px    (int)  ：影像的像素寬度，由 image.shape[1] 取得
+        """
 
-    原理：
-        焦距已由 calculate_focal_length() 求得，
-        樹幹在影像中的像素寬度由 trunk_detector 提供，
-        拍攝距離由使用者輸入。
-        代入公式即可得到樹幹的真實直徑。
+        # 防呆：感光元件寬度不可為 0，否則後續除以零
+        if sensor_width_mm <= 0:
+            print("[FocalCalculator] 感光元件寬度無效（<=0），焦距設為 0")
+            self._focal_px = 0.0
+        else:
+            # 換算：mm 焦距 → px 焦距
+            # 原理：感光元件寬度(mm) 對應影像寬度(px)，等比例換算焦距
+            self._focal_px = (focal_mm / sensor_width_mm) * img_width_px
 
-    參數：
-        trunk_pixel_width (float)：樹幹在影像中的像素寬度
-        focal_length      (float)：相機焦距，單位：像素（由 calculate_focal_length 算出）
-        distance_cm       (float)：拍攝時與樹幹的距離，單位：公分
+    def calculate(self, trunk_px: float, distance_m: float) -> float:
+        """
+        用焦距公式算出樹幹的真實直徑。
 
-    回傳值：
-        float：樹幹真實直徑，單位：公分
-        None ：若輸入值不合法則回傳 None
-    """
+        公式：真實寬度(cm) = 樹幹像素寬度 × 距離(cm) ÷ 焦距像素值
 
-    # 防止除以零：焦距不可為 0
-    if focal_length is None or focal_length <= 0:
-        print("[警告] 焦距不合法，無法進行方法二計算")
-        return None
+        參數：
+            trunk_px   (float)：樹幹在影像中的像素寬度
+                                由 geometry.py 的切片計算取得
 
-    # 防止負值影像寬度
-    if trunk_pixel_width <= 0:
-        print("[警告] 樹幹像素寬度不合法，無法計算直徑")
-        return None
+            distance_m (float)：拍攝時與樹幹的距離，單位：公尺
+                                由 InputHandler.get_distance() 取得
 
-    # 套用公式：真實尺寸 = 像素寬度 × 距離 / 焦距
-    diameter_cm = (trunk_pixel_width * distance_cm) / focal_length
+        回傳值：
+            float：樹幹直徑，單位：公分（cm）
+                   若焦距像素值為 0（初始化失敗），回傳 0.0
+        """
 
-    return diameter_cm
+        # 防呆：焦距無效時無法計算
+        if self._focal_px <= 0:
+            print("[FocalCalculator] 焦距像素值無效，無法計算直徑")
+            return 0.0
 
+        # 防呆：樹幹像素寬度不可為 0 或負數
+        if trunk_px <= 0:
+            print("[FocalCalculator] 樹幹像素寬度無效，無法計算直徑")
+            return 0.0
 
-def run_method_b(trunk_pixel_width, qr_pixel_size, distance_m):
-    """
-    方法二的完整流程（對外主要呼叫入口）。
+        # 單位換算：公尺 → 公分（公式需要公分）
+        distance_cm = distance_m * 100
 
-    將上面兩個步驟整合成一個函式：
-        1. 用 QR code 算焦距
-        2. 用焦距算樹幹直徑
+        # 套用針孔相機公式：真實寬度 = 像素寬度 × 距離 ÷ 焦距
+        diameter_cm = (trunk_px * distance_cm) / self._focal_px
 
-    參數：
-        trunk_pixel_width (float)：樹幹在影像中的像素寬度
-        qr_pixel_size     (float)：QR code 在影像中的像素寬度
-        distance_m        (float)：拍攝距離，單位：公尺（會自動轉換為公分）
+        return diameter_cm
 
-    回傳值：
-        float：樹幹真實直徑，單位：公分
-        None ：任一步驟失敗時回傳 None
-    """
+    def _to_focal_px(self) -> float:
+        """
+        回傳相機焦距（像素單位），供 main.py 計算比例尺使用。
 
-    # 單位換算：公尺 → 公分（公式需要公分）
-    distance_cm = distance_m * 100
+        比例尺（cm/px）的計算方式為：
+            scale = 距離(cm) ÷ 焦距(px)
 
-    # 步驟一：算焦距
-    focal_length = calculate_focal_length(qr_pixel_size, distance_cm)
-    if focal_length is None:
-        return None  # 焦距算失敗，直接中止
+        main.py 呼叫範例：
+            scale_b = (distance_m * 100) / focal_calc._to_focal_px()
 
-    # 步驟二：算直徑
-    diameter_cm = calculate_diameter_method_b(trunk_pixel_width, focal_length, distance_cm)
-
-    return diameter_cm
+        回傳值：
+            float：焦距，單位：像素
+                   若初始化失敗則為 0.0（呼叫端需做除以零防護）
+        """
+        return self._focal_px

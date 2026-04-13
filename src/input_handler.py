@@ -1,123 +1,209 @@
 #輔負責
-import argparse  # 用來處理命令列參數的標準函式庫
-import os        # 用來檢查檔案與資料夾是否存在
+import tkinter as tk                        # Python 內建 GUI 套件
+from tkinter import filedialog, messagebox  # 檔案選擇視窗、訊息對話框
+import config                               # 讀取全域設定
 
 
-def parse_arguments():
+class InputHandler:
     """
-    解析使用者從命令列輸入的參數。
+    使用者輸入處理器
 
-    使用方式範例：
-        python main.py --image photo.jpg
-        python main.py --folder ./images --distance 3.5
+    負責所有「使用者互動」的部分：
+      - 彈出視窗讓使用者選擇圖片
+      - 用對話框詢問相機焦距與感光元件寬度
+      - 詢問拍攝距離，並檢查是否超過建議範圍
 
-    回傳值：
-        argparse.Namespace 物件，可用 args.image、args.folder 等方式取值。
-    """
-
-    # 建立一個「參數解析器」，description 是使用者輸入 --help 時看到的說明
-    parser = argparse.ArgumentParser(
-        description="樹幹直徑量測系統：輸入影像，自動量測樹幹胸高直徑（DBH）"
-    )
-
-    # ── 輸入來源（二擇一）──────────────────────────────────────────
-    # --image：單張照片路徑
-    parser.add_argument(
-        "--image",
-        type=str,
-        default=None,
-        help="單張影像的檔案路徑，例如：--image photo.jpg"
-    )
-
-    # --folder：整個資料夾，會批次處理裡面所有圖片
-    parser.add_argument(
-        "--folder",
-        type=str,
-        default=None,
-        help="含有多張影像的資料夾路徑，例如：--folder ./images"
-    )
-
-    # ── 模型設定 ──────────────────────────────────────────────────
-    # --model：YOLO 模型權重檔路徑（預設使用 best.pt）
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="best.pt",
-        help="YOLO 模型權重檔路徑（預設：best.pt）"
-    )
-
-    # ── 相機設定 ──────────────────────────────────────────────────
-    # --distance：拍攝時與樹幹的距離（公尺），用於焦距公式（方法二）
-    parser.add_argument(
-        "--distance",
-        type=float,
-        default=None,
-        help="拍攝時與樹幹的距離，單位：公尺，例如：--distance 3.5"
-    )
-
-    # ── 輸出設定 ──────────────────────────────────────────────────
-    # --output：結果儲存的資料夾（預設使用 config.py 中的 OUTPUT_DIR）
-    parser.add_argument(
-        "--output",
-        type=str,
-        default=None,
-        help="結果輸出資料夾路徑（預設：~/Desktop/results）"
-    )
-
-    # 執行解析，把使用者輸入的字串轉換成對應型別的值
-    args = parser.parse_args()
-
-    return args
-
-
-def validate_inputs(args):
-    """
-    檢查使用者輸入的參數是否合法。
-    如果有問題，直接印出錯誤訊息並拋出例外，讓程式停止。
-
-    參數：
-        args：parse_arguments() 回傳的物件
-
-    回傳值：
-        無。發現問題時拋出 ValueError 或 FileNotFoundError。
+    所有輸入驗證集中在這個類別，其他模組不需要處理輸入錯誤。
     """
 
-    # ── 檢查輸入來源 ─────────────────────────────────────────────
-    # 使用者必須提供 --image 或 --folder 其中一個，不能都沒給
-    if args.image is None and args.folder is None:
-        raise ValueError("請提供影像來源：使用 --image 指定單張照片，或 --folder 指定資料夾")
+    # ----------------------------------------------------------
+    # 公開方法
+    # ----------------------------------------------------------
 
-    # 也不能兩個同時給（避免混淆）
-    if args.image is not None and args.folder is not None:
-        raise ValueError("--image 和 --folder 只能擇一使用，請勿同時指定")
+    def get_image_path(self) -> str:
+        """
+        彈出 tkinter 檔案選擇視窗，讓使用者選一張圖片。
 
-    # ── 檢查單張照片 ──────────────────────────────────────────────
-    if args.image is not None:
-        # 檢查檔案是否存在
-        if not os.path.isfile(args.image):
-            raise FileNotFoundError(f"找不到影像檔案：{args.image}")
+        支援格式：.jpg、.jpeg、.png、.bmp
 
-        # 檢查副檔名是否為支援的圖片格式
-        supported = [".jpg", ".jpeg", ".png", ".bmp"]
-        _, ext = os.path.splitext(args.image)  # 分離檔名與副檔名
-        if ext.lower() not in supported:
-            raise ValueError(f"不支援的圖片格式：{ext}，請使用 {supported} 其中之一")
+        回傳值：
+            str：使用者選擇的圖片完整路徑
 
-    # ── 檢查資料夾 ────────────────────────────────────────────────
-    if args.folder is not None:
-        # 檢查資料夾是否存在
-        if not os.path.isdir(args.folder):
-            raise FileNotFoundError(f"找不到資料夾：{args.folder}")
+        例外：
+            若使用者關閉視窗沒有選擇任何檔案，拋出 ValueError
+        """
 
-    # ── 檢查模型檔 ────────────────────────────────────────────────
-    if not os.path.isfile(args.model):
-        raise FileNotFoundError(f"找不到 YOLO 模型檔：{args.model}")
+        # 建立一個暫時的 tkinter 根視窗
+        # withdraw() 讓它隱藏在背景，使用者只看得到檔案選擇對話框
+        root = tk.Tk()
+        root.withdraw()
 
-    # ── 檢查距離 ──────────────────────────────────────────────────
-    if args.distance is not None:
-        # 距離必須是正數（不能是 0 或負數）
-        if args.distance <= 0:
-            raise ValueError(f"拍攝距離必須大於 0，你輸入的是：{args.distance}")
+        # 定義可選擇的檔案格式
+        filetypes = [
+            ("圖片檔案", "*.jpg *.jpeg *.png *.bmp"),
+            ("所有檔案", "*.*"),
+        ]
 
-    # 全部通過，印出確認訊息
-    print("輸入參數驗證通過")
+        # 彈出檔案選擇視窗，讓使用者瀏覽並點選圖片
+        image_path = filedialog.askopenfilename(
+            title="請選擇要量測的樹幹照片",
+            filetypes=filetypes
+        )
+
+        # 關閉暫時的根視窗，避免背景留有殘餘視窗
+        root.destroy()
+
+        # 使用者沒有選任何檔案（直接關閉對話框）
+        if not image_path:
+            raise ValueError("未選擇圖片，程式結束")
+
+        print(f"已選擇圖片：{image_path}")
+        return image_path
+
+    def get_camera_params(self) -> tuple:
+        """
+        用文字輸入對話框詢問使用者相機的焦距和感光元件寬度。
+
+        這兩個參數是「方法二（焦距公式）」用來計算比例尺的必要資訊。
+        通常可以在相機規格表或鏡頭包裝上找到。
+
+        回傳值：
+            tuple(float, float)：(焦距_mm, 感光元件寬度_mm)
+
+        例外：
+            若使用者輸入非數字或關閉視窗，拋出 ValueError
+        """
+
+        # 建立隱藏的根視窗（只讓對話框出現）
+        root = tk.Tk()
+        root.withdraw()
+
+        # ── 詢問焦距 ──────────────────────────────────────────
+        focal_str = self._ask_value(
+            root,
+            title="相機參數輸入",
+            prompt="請輸入相機焦距（mm）\n\n"
+                   "手機相機通常為 3~6mm\n"
+                   "單眼標準鏡頭通常為 35~50mm"
+        )
+
+        # ── 詢問感光元件寬度 ───────────────────────────────────
+        sensor_str = self._ask_value(
+            root,
+            title="相機參數輸入",
+            prompt="請輸入感光元件寬度（mm）\n\n"
+                   "全片幅：36mm\n"
+                   "APS-C：23.5mm\n"
+                   "手機（1/1.7\"）：7.6mm"
+        )
+
+        root.destroy()
+
+        # 把字串轉成浮點數，並做基本驗證
+        try:
+            focal_mm   = float(focal_str)
+            sensor_w   = float(sensor_str)
+        except ValueError:
+            raise ValueError("焦距和感光元件寬度必須是數字")
+
+        if focal_mm <= 0:
+            raise ValueError(f"焦距必須大於 0，你輸入的是：{focal_mm}")
+        if sensor_w <= 0:
+            raise ValueError(f"感光元件寬度必須大於 0，你輸入的是：{sensor_w}")
+
+        print(f"相機參數：焦距 {focal_mm}mm，感光元件寬度 {sensor_w}mm")
+        return focal_mm, sensor_w
+
+    def get_distance(self) -> float:
+        """
+        詢問使用者拍攝時與樹幹的距離（公尺）。
+
+        若距離超過 config.MAX_DISTANCE_M，
+        顯示警告但不強制阻止，讓使用者自行決定是否繼續。
+
+        回傳值：
+            float：拍攝距離（公尺）
+
+        例外：
+            若使用者輸入非數字或距離 <= 0，拋出 ValueError
+        """
+
+        root = tk.Tk()
+        root.withdraw()
+
+        distance_str = self._ask_value(
+            root,
+            title="拍攝距離輸入",
+            prompt=f"請輸入拍攝時與樹幹的距離（公尺）\n\n"
+                   f"建議距離：1.5 ~ {config.MAX_DISTANCE_M} 公尺\n"
+                   f"超過 {config.MAX_DISTANCE_M} 公尺時 QR code 可能偵測不到"
+        )
+
+        root.destroy()
+
+        # 轉換成浮點數
+        try:
+            distance_m = float(distance_str)
+        except ValueError:
+            raise ValueError("距離必須是數字")
+
+        # 驗證合法性
+        if not self._validate_distance(distance_m):
+            raise ValueError(f"拍攝距離必須大於 0，你輸入的是：{distance_m}")
+
+        # 距離超過上限時，彈出警告視窗（但程式繼續執行）
+        if distance_m > config.MAX_DISTANCE_M:
+            root2 = tk.Tk()
+            root2.withdraw()
+            messagebox.showwarning(
+                title="距離警告",
+                message=f"拍攝距離 {distance_m}m 超過建議上限 {config.MAX_DISTANCE_M}m，\n"
+                        f"QR code 可能無法偵測，系統將改用焦距公式備援。"
+            )
+            root2.destroy()
+
+        print(f"拍攝距離：{distance_m} 公尺")
+        return distance_m
+
+    # ----------------------------------------------------------
+    # 內部方法（只在類別內部使用，外部不直接呼叫）
+    # ----------------------------------------------------------
+
+    def _ask_value(self, root: tk.Tk, title: str, prompt: str) -> str:
+        """
+        彈出一個簡單的文字輸入對話框，等待使用者輸入並回傳結果。
+
+        參數：
+            root   (tk.Tk)：已建立的 tkinter 根視窗
+            title  (str)  ：對話框標題
+            prompt (str)  ：顯示給使用者的提示文字
+
+        回傳值：
+            str：使用者輸入的文字
+
+        例外：
+            若使用者關閉視窗（沒有按確認），拋出 ValueError
+        """
+
+        # 使用 tkinter 內建的 simpledialog 詢問單一數值
+        from tkinter import simpledialog
+        value = simpledialog.askstring(title=title, prompt=prompt, parent=root)
+
+        # 使用者關閉視窗（value 為 None）
+        if value is None:
+            raise ValueError(f"使用者取消了輸入（{title}），程式結束")
+
+        # 去掉前後空白，避免使用者不小心輸入空白鍵
+        return value.strip()
+
+    def _validate_distance(self, d: float) -> bool:
+        """
+        檢查距離是否合法（必須為正數）。
+
+        參數：
+            d (float)：要驗證的距離值
+
+        回傳值：
+            bool：True 代表合法，False 代表不合法
+        """
+        return d > 0
