@@ -23,6 +23,76 @@ class GeometryEngine:
        讓使用者知道這次測量結果穩不穩定
     """
 
+    def compute_target_y(self, trunk_pts: np.ndarray, scale: float) -> float:
+        """
+        根據樹幹輪廓點和比例尺，計算胸高（1.3m）對應的影像 y 座標
+
+        參數說明：
+            trunk_pts : np.ndarray
+                YOLO 回傳的樹幹輪廓點陣列，shape 為 (N, 2)
+                每一列是 [x座標, y座標]，單位是像素
+
+            scale : float
+                比例尺，單位是「公分/像素（cm/px）」
+                由 QRCalculator.compute_scale() 算出
+
+        回傳值：
+            float
+                胸高量測位置的影像 y 座標（像素）
+                若輸入無效則回傳 -1.0（代表無法計算，呼叫端需處理）
+        """
+
+        # ── 防呆：比例尺或輪廓點無效時直接回傳 -1.0 ──────────────
+        #
+        # scale <= 0 代表 QRCalculator 計算失敗（距離太遠或偵測失敗）
+        # trunk_pts 為空代表 YOLO 沒有偵測到樹幹輪廓
+        # 這兩種情況都無法計算有效的 target_y，回傳 -1.0 作為錯誤碼
+        # get_diameter_at_height() 看到 target_y < 0 會提早回傳失敗結果
+        if scale <= 0 or len(trunk_pts) == 0:
+            return -1.0
+
+        # ── 第一步：找出 mask 最低點（影像 y 值最大的點）────────────
+        #
+        # 影像座標系的 y 軸方向：向下為正，向上為負
+        # 因此「y 值最大的點」就是影像中「最低的點」
+        # 樹幹輪廓的最低點對應地面（樹根接地處），作為地面基準
+        #
+        # 為什麼用 mask 最低點當基準，而不是用影像底部？
+        # 因為拍攝角度、構圖不同，樹幹底部不一定落在影像邊緣
+        # 用實際偵測到的樹幹底部當地面基準，比固定用影像底部更準確
+        mask_bottom_y = trunk_pts[:, 1].max()
+
+        # ── 第二步：把 1.3m 換算成像素距離 ───────────────────────
+        #
+        # CAMERA_HEIGHT_M = 1.3（公尺），先乘以 100 轉成公分
+        # 再除以 scale（cm/px）得到對應的像素距離
+        #
+        # 公式：offset_px = (高度公分) / (cm/px) = 像素數量
+        # 範例：
+        #   CAMERA_HEIGHT_M = 1.3m = 130cm
+        #   scale = 0.025 cm/px
+        #   offset_px = 130 / 0.025 = 5200px
+        #   → 從地面往上 5200 個像素就是胸高位置
+        offset_px = (config.CAMERA_HEIGHT_M * 100) / scale
+
+        # ── 第三步：往上偏移，算出胸高的 y 座標 ──────────────────
+        #
+        # 影像 y 軸向下為正，所以「往上」= y 值減小
+        # 從地面基準（mask_bottom_y）往上 offset_px 個像素：
+        #   target_y = mask_bottom_y - offset_px
+        #
+        # 視覺化：
+        #   y=0    ──── 影像頂部
+        #     ↓
+        #   target_y ── 胸高量測線（這裡量直徑）← 我們要算的位置
+        #     ↓    offset_px（1.3m 換算的像素距離）
+        #   mask_bottom_y ── 樹幹最低點（地面基準）
+        #     ↓
+        #   y=max  ──── 影像底部
+        target_y = mask_bottom_y - offset_px
+
+        return target_y
+
     def get_diameter_at_height(
         self,
         trunk_pts: np.ndarray,
@@ -55,6 +125,14 @@ class GeometryEngine:
             confidence  : str    "high" / "medium" / "low"
                                  根據有效切片數和標準差判斷
         """
+
+        # ── 防呆：target_y 無效時提早回傳 ────────────────────────
+        #
+        # target_y < 0 代表 compute_target_y() 計算失敗（回傳了 -1.0）
+        # 原因可能是比例尺無效或輪廓點為空
+        # 繼續往下執行沒有意義，直接回傳失敗結果
+        if target_y < 0:
+            return {"diameter_cm": 0.0, "std_cm": 0.0, "confidence": "low"}
 
         # ── 第一步：在 target_y 附近取 20 條水平切片 ──────────────
         #

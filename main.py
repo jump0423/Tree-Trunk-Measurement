@@ -88,14 +88,6 @@ def main():
     qr_result   = qr_detector.detect(image)  # 成功回傳像素寬度，失敗回傳 None
 
     # ── 步驟 4：計算比例尺和 DBH ──────────────────────────────
-    #
-    # target_y 是要量測的高度（y 座標，單位像素）
-    # 因為相機固定在 1.3m，畫面垂直中點就是胸高
-    # 所以 target_y = 圖片高度 / 2
-    # 如果之後相機高度改變，只需要改 config.CAMERA_HEIGHT_M
-    # （目前版本直接用中點，之後可擴充為用 CAMERA_HEIGHT_M 換算）
-
-    target_y = img_h / 2  # 畫面垂直中點 = 胸高位置
 
     geometry = GeometryEngine()
     result_a = None  # 方法一結果（QR code 比例尺）
@@ -103,15 +95,16 @@ def main():
 
     if qr_detector.is_detected():
         # ── 方法一：QR code 比例尺 ────────────────────────────
-        # QR code 偵測成功，用它當比例尺
-        # scale = QR code 真實大小（cm）÷ QR code 像素寬度
-        # 例如：5cm ÷ 200px = 0.025 cm/px
+        # ① 用 QRCalculator 將 QR code 像素寬度換算成比例尺（cm/px）
+        qr_calc = QRCalculator()
+        scale_a = qr_calc.compute_scale(qr_result)
 
-        qr_calculator = QRCalculator(config.QR_REAL_SIZE_CM)
-        scale_a = config.QR_REAL_SIZE_CM / qr_result  # cm/px
+        # ② 用樹幹輪廓點 + 比例尺，算出 1.3m 高的量測位置 y 座標
+        target_y_a = geometry.compute_target_y(trunk_pts, scale_a)
 
+        # ③ 在 target_y 位置計算樹幹直徑
         geo_result_a = geometry.get_diameter_at_height(
-            trunk_pts, target_y, scale_a
+            trunk_pts, target_y_a, scale_a
         )
         result_a = geo_result_a["diameter_cm"]  # 取出直徑數值
 
@@ -123,8 +116,12 @@ def main():
     scale_b    = focal_calc._to_focal_px() / (distance_m * 100)
     # 注意：上面這行之後 Morris 寫好 FocalCalculator 後可能需要調整
 
+    # ② 同樣用 compute_target_y 算出胸高 y 座標
+    target_y_b = geometry.compute_target_y(trunk_pts, scale_b)
+
+    # ③ 在 target_y 位置計算樹幹直徑
     geo_result_b = geometry.get_diameter_at_height(
-        trunk_pts, target_y, scale_b
+        trunk_pts, target_y_b, scale_b
     )
     result_b = geo_result_b["diameter_cm"]
 
