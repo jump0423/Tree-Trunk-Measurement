@@ -1,199 +1,148 @@
 #輔負責
-import os       # 用來操作檔案路徑、建立資料夾
-import csv      # 用來讀寫 CSV 格式的結果檔
-import cv2      # 用來儲存帶有標注的影像
-import config   # 讀取全域設定（如 OUTPUT_DIR）
-
-
-# 支援的圖片副檔名清單
-SUPPORTED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".bmp"]
-
-
-# ════════════════════════════════════════════════════════════════
-#  檔案管理模組
+# =============================================================
+# file_manager.py — 檔案存取管理器
 #
-#  本模組負責所有與「檔案讀寫」相關的操作：
-#    - 取得要處理的圖片路徑清單
-#    - 建立輸出資料夾
-#    - 把量測結果存成 CSV
-#    - 把標注後的影像存成圖片
-# ════════════════════════════════════════════════════════════════
+# 負責所有「寫檔」的工作：
+#   1. 建立輸出資料夾
+#   2. 儲存標注後的圖片（原始檔名 + 時間戳記）
+#   3. 把每次的量測結果新增到 measurements.csv（不覆寫舊資料）
+#
+# 設計原則：
+#   輸出目錄由 config.OUTPUT_DIR 控制，不污染專案目錄
+#   CSV 採用 append 模式，每次執行自動累積新資料
+# =============================================================
+
+import os       # 檔案路徑、資料夾操作
+import csv      # 讀寫 CSV 格式
+import datetime # 取得目前時間，用來產生時間戳記
+import cv2      # 儲存影像
 
 
-def get_image_paths(image=None, folder=None):
+class FileManager:
     """
-    根據使用者的輸入，回傳所有要處理的圖片路徑清單。
+    檔案存取管理器
 
-    兩種模式：
-        - 單張模式：image 參數有值，直接回傳 [image]
-        - 批次模式：folder 參數有值，掃描資料夾內所有支援格式的圖片
-
-    參數：
-        image  (str 或 None)：單張圖片的路徑
-        folder (str 或 None)：含有多張圖片的資料夾路徑
-
-    回傳值：
-        list[str]：圖片路徑的清單；若找不到任何圖片則回傳空 list
-    """
-
-    # ── 單張模式 ──────────────────────────────────────────────────
-    if image is not None:
-        # 直接把單張路徑包成 list 回傳
-        return [image]
-
-    # ── 批次模式 ──────────────────────────────────────────────────
-    if folder is not None:
-        image_paths = []  # 準備一個空 list 來收集結果
-
-        # os.listdir() 列出資料夾內所有檔名（不含子資料夾）
-        for filename in os.listdir(folder):
-            # 取得副檔名，例如 "photo.JPG" → ".jpg"
-            _, ext = os.path.splitext(filename)
-
-            # 只收集支援的圖片格式（不分大小寫）
-            if ext.lower() in SUPPORTED_EXTENSIONS:
-                # 組合成完整的路徑，例如 "./images/photo.jpg"
-                full_path = os.path.join(folder, filename)
-                image_paths.append(full_path)
-
-        # 依照檔名排序，讓處理順序固定（方便對照結果）
-        image_paths.sort()
-
-        if len(image_paths) == 0:
-            print(f"[警告] 資料夾 {folder} 內沒有找到任何支援的圖片")
-
-        return image_paths
-
-    # 兩個參數都沒給（理論上 validate_inputs 會先攔截，這裡做雙重保險）
-    return []
-
-
-def prepare_output_dir(output_path=None):
-    """
-    確保輸出資料夾存在，不存在就自動建立。
-
-    參數：
-        output_path (str 或 None)：使用者指定的輸出路徑；
-                                    若為 None，則使用 config.OUTPUT_DIR
-
-    回傳值：
-        str：實際使用的輸出資料夾路徑（已展開 ~ 符號）
+    屬性：
+        output_dir (str)：實際使用的輸出資料夾路徑（~ 已展開）
+        csv_path   (str)：measurements.csv 的完整路徑
     """
 
-    # 若使用者沒有指定，就用設定檔的預設路徑
-    if output_path is None:
-        output_path = config.OUTPUT_DIR
+    def __init__(self, output_dir: str):
+        """
+        初始化管理器，確保輸出資料夾存在。
 
-    # os.path.expanduser() 把 "~" 展開成實際的家目錄路徑
-    # 例如 "~/Desktop/results" → "C:/Users/user/Desktop/results"
-    output_path = os.path.expanduser(output_path)
+        參數：
+            output_dir (str)：輸出資料夾路徑，例如 "~/Desktop/results"
+                              支援 ~ 符號（自動展開成完整路徑）
+        """
 
-    # 若資料夾不存在，就建立它（exist_ok=True 表示已存在時不報錯）
-    os.makedirs(output_path, exist_ok=True)
+        # os.path.expanduser() 把 "~" 展開成家目錄
+        # 例如 "~/Desktop/results" → "C:/Users/user/Desktop/results"
+        self.output_dir = os.path.expanduser(output_dir)
 
-    print(f"輸出資料夾：{output_path}")
-    return output_path
+        # 若資料夾不存在，自動建立（exist_ok=True 表示已存在時不報錯）
+        os.makedirs(self.output_dir, exist_ok=True)
 
+        # CSV 固定命名為 measurements.csv，放在輸出資料夾內
+        self.csv_path = os.path.join(self.output_dir, "measurements.csv")
 
-def save_result_csv(result, output_dir):
-    """
-    將單筆量測結果追加寫入 CSV 檔案。
+        print(f"輸出資料夾：{self.output_dir}")
 
-    CSV 的每一行代表一張圖片的量測結果。
-    若 CSV 不存在，會自動建立並寫入標題列（欄位名稱）。
+    def save_image(self, image, source_path: str) -> str:
+        """
+        儲存標注後的圖片，以「原始檔名_時間戳.png」命名。
 
-    參數：
-        result     (MeasurementResult)：量測結果物件（來自 src/models.py）
-        output_dir (str)              ：輸出資料夾路徑
+        命名範例：
+            原始檔名 photo.jpg → 輸出 photo_20260414_153012.png
 
-    回傳值：
-        str：CSV 檔案的完整路徑
-    """
+        參數：
+            image       (numpy.ndarray)：OpenCV 格式的影像（已畫上遮罩與標注）
+            source_path (str)          ：原始圖片路徑，用來取出原始檔名
 
-    # CSV 固定放在輸出資料夾內，檔名為 results.csv
-    csv_path = os.path.join(output_dir, "results.csv")
+        回傳值：
+            str：儲存後的完整圖片路徑
+            None：若 image 為 None 則跳過並回傳 None
+        """
 
-    # 定義 CSV 的欄位順序（與 MeasurementResult 的屬性對應）
-    fieldnames = [
-        "timestamp",     # 量測時間
-        "image_file",    # 圖片檔名
-        "diameter_cm",   # 最終直徑（公分）
-        "method",        # 使用的方法（method_a / method_b / average）
-        "status",        # 狀態（ok / warning / error）
-        "result_a",      # 方法一結果
-        "result_b",      # 方法二結果
-        "confidence",    # YOLO 信心度
-        "diameter_std",  # 直徑標準差
-        "warnings",      # 警告訊息
-    ]
+        # 若影像為空，跳過儲存
+        if image is None:
+            print("[FileManager] 影像為空，略過圖片儲存")
+            return None
 
-    # 判斷 CSV 是否已經存在（決定要不要寫標題列）
-    file_exists = os.path.isfile(csv_path)
+        # 取出原始檔名（不含路徑），例如 "photo.jpg"
+        base_name = os.path.basename(source_path)
 
-    # "a" 模式 = append（追加），不會覆蓋舊資料
-    # newline="" 是 Python csv 模組的必要設定，避免多餘換行
-    with open(csv_path, mode="a", newline="", encoding="utf-8-sig") as f:
-        # utf-8-sig 讓 Windows 的 Excel 能正確顯示中文
+        # 分離檔名與副檔名，例如 ("photo", ".jpg")
+        name_only, _ = os.path.splitext(base_name)
 
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        # 產生時間戳記，格式為 YYYYMMDD_HHMMSS
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        # 只有第一次建立 CSV 時才寫標題列
-        if not file_exists:
-            writer.writeheader()
+        # 組合輸出檔名，固定存成 PNG（無損壓縮，保留細節）
+        output_filename = f"{name_only}_{timestamp}.png"
+        output_path     = os.path.join(self.output_dir, output_filename)
 
-        # 把 result 物件的欄位逐一對應寫入 CSV 的一行
-        writer.writerow({
-            "timestamp":    result.timestamp,
-            "image_file":   result.image_file,
-            "diameter_cm":  result.diameter_cm,
-            "method":       result.method,
-            "status":       result.status,
-            "result_a":     result.result_a if result.result_a is not None else "",
-            "result_b":     result.result_b,
-            "confidence":   result.confidence,
-            "diameter_std": result.diameter_std,
-            "warnings":     "; ".join(result.warnings),  # list 轉成用分號分隔的字串
-        })
+        # 用 OpenCV 儲存影像
+        cv2.imwrite(output_path, image)
 
-    return csv_path
+        print(f"標注圖片已儲存：{output_path}")
+        return output_path
 
+    def save_csv(self, result) -> str:
+        """
+        將一筆 MeasurementResult 新增到 measurements.csv。
 
-def save_annotated_image(image, filename, output_dir):
-    """
-    將帶有標注框的影像儲存到輸出資料夾。
+        CSV 採用 append 模式，每次執行只新增一列，不覆寫舊資料。
+        若 CSV 不存在，自動建立並寫入標題列（欄位名稱）。
 
-    檔名格式：原始檔名加上 "_result" 後綴，例如：
-        photo.jpg → photo_result.jpg
+        參數：
+            result (MeasurementResult)：量測結果物件（來自 src/models.py）
 
-    參數：
-        image      (numpy.ndarray)：OpenCV 讀取的影像（已畫上標注）
-        filename   (str)          ：原始圖片的檔名或路徑（用來產生輸出檔名）
-        output_dir (str)          ：輸出資料夾路徑
+        回傳值：
+            str：CSV 檔案的完整路徑
+        """
 
-    回傳值：
-        str：儲存後的圖片完整路徑
-        None：若 image 為 None 則回傳 None
-    """
+        # 定義 CSV 的欄位順序，與 MeasurementResult 的屬性對應
+        fieldnames = [
+            "timestamp",     # 量測時間
+            "image_file",    # 來源圖片檔名
+            "diameter_cm",   # 最終直徑（公分）
+            "method",        # 使用的方法（dual / qr_only / focal_only）
+            "status",        # 狀態（verified / mismatch / qr_failed）
+            "result_a",      # 方法一結果（QR code 比例尺）
+            "result_b",      # 方法二結果（焦距公式）
+            "confidence",    # YOLO 信心度
+            "diameter_std",  # 直徑標準差
+            "warnings",      # 警告訊息
+        ]
 
-    # 若沒有影像資料，就跳過儲存
-    if image is None:
-        print("[警告] 影像為空，略過儲存")
-        return None
+        # 判斷 CSV 是否已存在（決定要不要寫標題列）
+        file_exists = os.path.isfile(self.csv_path)
 
-    # 從完整路徑中只取出檔名，例如 "./images/photo.jpg" → "photo.jpg"
-    base_name = os.path.basename(filename)
+        # "a" 模式 = append（追加），不覆蓋舊資料
+        # newline="" 是 csv 模組要求的設定，避免多餘空行
+        # encoding="utf-8-sig" 讓 Windows Excel 能正確顯示中文
+        with open(self.csv_path, mode="a", newline="", encoding="utf-8-sig") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
 
-    # 分離檔名與副檔名，例如 "photo.jpg" → ("photo", ".jpg")
-    name_without_ext, ext = os.path.splitext(base_name)
+            # 第一次建立時才寫標題列
+            if not file_exists:
+                writer.writeheader()
 
-    # 組合出新檔名，例如 "photo_result.jpg"
-    output_filename = name_without_ext + "_result" + ext
+            # 把 result 物件的每個欄位寫成 CSV 的一列
+            writer.writerow({
+                "timestamp":    result.timestamp,
+                "image_file":   result.image_file,
+                "diameter_cm":  result.diameter_cm,
+                "method":       result.method,
+                "status":       result.status,
+                "result_a":     result.result_a if result.result_a is not None else "",
+                "result_b":     result.result_b,
+                "confidence":   result.confidence,
+                "diameter_std": result.diameter_std,
+                # warnings 是 list，轉成用分號分隔的字串存入 CSV
+                "warnings":     "; ".join(result.warnings),
+            })
 
-    # 組合出完整的儲存路徑
-    output_path = os.path.join(output_dir, output_filename)
-
-    # 用 OpenCV 儲存影像
-    cv2.imwrite(output_path, image)
-
-    print(f"標注影像已儲存：{output_path}")
-    return output_path
+        print(f"量測結果已寫入 CSV：{self.csv_path}")
+        return self.csv_path

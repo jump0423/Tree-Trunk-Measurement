@@ -1,83 +1,136 @@
 #輔負責
-class TrunkDetector:
+# =============================================================
+# trunk_detector.py — YOLO 樹幹偵測模組
+#
+# 封裝 YOLOv11 模型，負責在影像中找到樹幹並回傳輪廓資訊。
+# 本模組只做「偵測」，不做任何直徑計算。
+#
+# 回傳格式：dict，包含：
+#   masks_xy   : np.ndarray，shape (N, 2)，樹幹輪廓點（像素座標）
+#   confidence : float，YOLO 信心度分數（0.0 ~ 1.0）
+#   box        : list，邊界框 [x1, y1, x2, y2]
+# =============================================================
 
- def __init__(self, model_path="best.pt"):
+import os
+import numpy as np
+from ultralytics import YOLO   # YOLOv11 套件
+
+
+class TrunkDetector:
+    """
+    YOLO 樹幹偵測器
+
+    載入訓練好的模型，對輸入影像進行推論，
+    回傳信心度最高的那棵樹的輪廓點與信心度。
+
+    使用方式：
+        detector  = TrunkDetector(config.MODEL_PATH, config.CONF_THRESHOLD)
+        detection = detector.detect(image)
+
+        if detection is None:
+            print("未偵測到樹幹")
+        else:
+            trunk_pts  = detection["masks_xy"]
+            confidence = detection["confidence"]
+    """
+
+    def __init__(self, model_path: str, conf: float):
+        """
+        初始化偵測器，載入 YOLO 模型。
+
+        參數：
+            model_path (str)  ：模型權重檔路徑，例如 "best.pt"
+            conf       (float)：信心度閾值（來自 config.CONF_THRESHOLD）
+        """
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"找不到模型檔：{model_path}")
+
         print("正在載入 YOLO 模型...")
         self.model = YOLO(model_path)
+        self.conf  = conf
 
- def detect_and_measure(self, image_path):
+    def detect(self, image: np.ndarray):
         """
-        執行偵測，回傳一個 list，但現在保證 list 裡面最多只有 1 個結果 (信心度最高者)。
-        """
-        img = cv2.imread(image_path)
-        if img is None:
-            return None, []
+        對輸入影像執行 YOLO 推論，回傳信心度最高的樹幹資訊。
 
-        height, width, _ = img.shape
-        
-        # ---------------------------------------------------------
-        # 信心度門檻 (conf) 為 0.4
-        # 且保持 save=False (結果由 main 儲存)
-        # ---------------------------------------------------------
+        若偵測不到，回傳 None（不拋出例外，讓 main.py 處理）。
+
+        參數：
+            image (np.ndarray)：OpenCV 讀入的影像，BGR 格式
+
+        回傳值：
+            dict 或 None
+              成功：{"masks_xy": ..., "confidence": ..., "box": ...}
+              失敗：None
+        """
+        # save=False：不儲存推論結果圖
+        # verbose=False：不在終端機印出推論詳情
         results = self.model.predict(
-            source=image_path, 
-            save=False,       
-            verbose=False, 
-            conf=0.4  # 低於 0.4 的不會被偵測出來
+            source=image,
+            save=False,
+            verbose=False,
+            conf=self.conf
         )
-        
-        detected_trees = [] 
 
         for result in results:
-            # 檢查是否有偵測到任何物體
-            if result.masks and len(result.boxes) > 0:
-                
-                # 選取信心度最高的那一個
-                # 取得所有框的信心度分數
-                conf_scores = result.boxes.conf.cpu().numpy()
-                
-                # 找出最高分的索引 (index)
-                best_idx = np.argmax(conf_scores)
-                
-                # 只取出最高分對應的那個遮罩
-                mask_tensor = result.masks.data[best_idx]
-                
-                # --- 以下處理邏輯只會執行一次 ---
-                
-                # 1. 取得遮罩
-                mask_data = mask_tensor.cpu().numpy()
-                mask_resized = cv2.resize(mask_data, (width, height))
-                
-                # 2. 找出樹的垂直範圍 (Y軸)
-                y_indices, x_indices = np.where(mask_resized > 0.5)
-                
-                if len(y_indices) > 0:
-                    y_top = np.min(y_indices)
-                    y_bottom = np.max(y_indices)
-                    
-                    # 3. 算出中間高度
-                    measure_y = int((y_top + y_bottom) / 2)
-                    
-                    # 4. 在該高度找出左右邊緣 (X軸)
-                    row_pixels = mask_resized[measure_y, :]
-                    tree_indices = np.where(row_pixels > 0.5)[0]
-                    
-                    if len(tree_indices) > 0:
-                        x_start = np.min(tree_indices)
-                        x_end = np.max(tree_indices)
-                        pixel_width = x_end - x_start
-                        
-                        tree_info = {
-                            "mask": mask_resized,
-                            "measure_y": measure_y,
-                            "x_start": x_start,
-                            "x_end": x_end,
-                            "pixel_width": pixel_width,
-                            "confidence": conf_scores[best_idx] # (選填) 也可以順便存信心度
-                        }
-                        detected_trees.append(tree_info)
-        
-        # 回傳的 detected_trees 裡面現在最多只會有一棵樹
-        return img, detected_trees
+            # 確認有偵測到遮罩
+            if result.masks is None or len(result.boxes) == 0:
+                continue
+
+            # 選取信心度最高的偵測結果
+            conf_scores = result.boxes.conf.cpu().numpy()
+            best_idx    = int(np.argmax(conf_scores))
+
+            # 取出輪廓點（masks.xy 是 list，每個元素是一個物件的輪廓 (N, 2)）
+            trunk_pts = result.masks.xy[best_idx]
+            if len(trunk_pts) == 0:
+                continue
+
+            # 取出邊界框 [x1, y1, x2, y2]
+            box = result.boxes.xyxy[best_idx].cpu().numpy().tolist()
+
+            return {
+                "masks_xy":   trunk_pts,
+                "confidence": float(conf_scores[best_idx]),
+                "box":        box
+            }
+
+        return None  # 偵測失敗
+
+    def get_trunk_pixel_width(self, mask: np.ndarray) -> float:
+        """
+        從輪廓點陣列算出樹幹最寬處的像素距離。
+
+        參數：
+            mask (np.ndarray)：樹幹輪廓點陣列，shape 為 (N, 2)
+
+        回傳值：
+            float：樹幹最寬處的像素距離
+        """
+        # 最右邊 x 減去最左邊 x = 橫向寬度
+        return float(mask[:, 0].max() - mask[:, 0].min())
+
+    def is_trunk_complete(self, box: list, img_shape: tuple) -> bool:
+        """
+        檢查偵測框是否碰到影像邊緣（判斷樹幹是否完整入鏡）。
+
+        參數：
+            box       (list) ：邊界框 [x1, y1, x2, y2]，像素座標
+            img_shape (tuple)：影像的 shape，格式 (height, width, ...)
+
+        回傳值：
+            True  → 完整入鏡
+            False → 樹幹可能被裁切
+        """
+        img_w  = img_shape[1]
+        margin = 5   # 容差 5 像素
+
+        x1 = box[0]  # 偵測框左邊緣
+        x2 = box[2]  # 偵測框右邊緣
+
+        if x1 < margin:
+            return False  # 左側超出
+        if x2 > img_w - margin:
+            return False  # 右側超出
+
+        return True
