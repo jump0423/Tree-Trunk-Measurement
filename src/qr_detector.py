@@ -26,6 +26,7 @@
  
 from pyzbar import pyzbar   # QR code / 條碼偵測套件
 import numpy as np          # 數值計算，用來處理角點座標
+from typing import Optional
 import config               # 全域設定（MIN_MARKER_PX）
  
  
@@ -37,7 +38,7 @@ class QRDetector:
     外部只需呼叫 detect() 和 is_detected()，不需要知道 pyzbar 內部細節
  
     屬性：
-        _last_pixel_width (float | None)：
+        _last_pixel_width (Optional[float])：
             上次 detect() 偵測到的 QR code 像素寬度
             偵測失敗時為 None
             供 is_detected() 查詢使用
@@ -50,13 +51,13 @@ class QRDetector:
         _last_pixel_width 初始為 None，代表尚未執行過偵測
         每次呼叫 detect() 都會更新這個值
         """
-        self._last_pixel_width: float | None = None
+        self._last_pixel_width: Optional[float] = None
  
     # ----------------------------------------------------------
     # 公開方法
     # ----------------------------------------------------------
  
-    def detect(self, image: np.ndarray) -> float | None:
+    def detect(self, image: np.ndarray) -> Optional[float]:
         """
         在影像中偵測 QR code，回傳其像素寬度
  
@@ -66,7 +67,7 @@ class QRDetector:
                 由 main.py 用 cv2.imread() 讀取後傳入
  
         回傳值：
-            float | None
+            Optional[float]
                 成功：回傳 QR code 的像素寬度（float）
                       例如 QR code 在畫面裡寬 150px → 回傳 150.0
                 失敗：回傳 None（不拋出例外）

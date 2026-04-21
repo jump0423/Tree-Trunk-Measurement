@@ -1,11 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Read(//c/Users/user/OneDrive/Desktop/品管圈/**)",
-      "Bash(python -c ':*)"
-    ],
-    "additionalDirectories": [
-      "c:\\Users\\user\\OneDrive\\Desktop\\品管圈"
+      "Bash(python -c ' *)",
+      "Bash(git fetch *)",
+      "Bash(git merge *)",
+      "Bash(git stash *)",
+      "Bash(git checkout *)",
+      "Bash(git add *)"
     ]
   }
 }

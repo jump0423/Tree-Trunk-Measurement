@@ -53,9 +53,10 @@ class Visualizer:
         trunk_pts = detection["masks_xy"]  # shape (N, 2)
 
         # 依序呼叫三個內部繪製方法
-        self._draw_mask(output, trunk_pts)            # 1. 半透明綠色遮罩
-        self._draw_diameter_line(output, trunk_pts)   # 2. 紅色量測線
-        self._draw_status_label(output, result)        # 3. 右上角狀態文字
+        self._draw_mask(output, trunk_pts)                          # 1. 半透明綠色遮罩
+        self._draw_diameter_line(output, trunk_pts,
+                                 int(result.measurement_y))      # 2. 紅色量測線（實際胸高位置）
+        self._draw_status_label(output, result)                   # 3. 右上角狀態文字
 
         return output
 
@@ -108,17 +109,11 @@ class Visualizer:
         # 再畫一條亮綠色輪廓線，讓樹幹邊緣更清晰
         cv2.polylines(image, [pts], isClosed=True, color=(0, 255, 0), thickness=2)
 
-    def _draw_diameter_line(self, image: np.ndarray, trunk_pts: np.ndarray) -> None:
+    def _draw_diameter_line(self, image: np.ndarray, trunk_pts: np.ndarray, measure_y: int) -> None:
         """
         在影像上繪製胸高位置的紅色水平量測線。
 
-        量測線位置：取樹幹輪廓的垂直中點作為近似胸高位置。
-
-        說明：
-            精確的 1.3m 胸高位置需要比例尺才能計算（由 geometry.py 負責）。
-            visualizer 沒有比例尺資訊，因此用輪廓垂直中點來近似，
-            目的只是讓使用者看到「量測位置大概在哪裡」，
-            真正用來算直徑的 y 座標在 geometry.py 裡。
+        量測線位置：由 result.measurement_y 傳入（geometry.py 計算的實際 1.3m 位置）。
 
         繪製內容：
             - 紅色水平線（從輪廓左緣到右緣）
@@ -127,42 +122,42 @@ class Visualizer:
         參數：
             image     (np.ndarray)：要繪製的影像
             trunk_pts (np.ndarray)：樹幹輪廓點，shape 為 (N, 2)
+            measure_y (int)       ：胸高量測位置的 y 座標（像素）
         """
 
-        img_w = image.shape[1]
+        img_h = image.shape[0]
 
-        # 找出樹幹輪廓的垂直範圍（y 座標）
-        y_top    = int(trunk_pts[:, 1].min())  # 輪廓最高點（y 最小）
-        y_bottom = int(trunk_pts[:, 1].max())  # 輪廓最低點（y 最大）
+        # 確保 measure_y 在影像範圍內
+        measure_y = max(0, min(measure_y, img_h - 1))
 
-        # 取垂直中點作為量測線的 y 座標
-        measure_y = int((y_top + y_bottom) / 2)
+        # 用光柵化找 x 範圍，避免 YOLO 稀疏輪廓點導致找不到足夠的點
+        x_max_pt = int(trunk_pts[:, 0].max()) + 1
+        y_max_pt = int(trunk_pts[:, 1].max()) + 1
+        raster = np.zeros((y_max_pt + 1, x_max_pt + 1), dtype=np.uint8)
+        pts_int = trunk_pts.astype(np.int32).reshape((-1, 1, 2))
+        cv2.fillPoly(raster, [pts_int], 255)
 
-        # 在量測線高度附近（±10px 容差）找出輪廓點
-        # 用這些點的 x 座標範圍來決定量測線的起訖位置
-        nearby_pts = trunk_pts[np.abs(trunk_pts[:, 1] - measure_y) <= 10]
-
-        if len(nearby_pts) >= 2:
-            # 有找到附近的輪廓點，量測線從樹左側到樹右側
-            x_left  = int(nearby_pts[:, 0].min())
-            x_right = int(nearby_pts[:, 0].max())
+        if measure_y < raster.shape[0]:
+            xs = np.where(raster[measure_y, :] > 0)[0]
         else:
-            # 找不到附近點（罕見情況），量測線橫跨整張影像
-            x_left  = 0
-            x_right = img_w
+            xs = np.array([])
 
-        # 畫紅色水平量測線（BGR 格式，紅色 = (0, 0, 255)，粗度 2px）
+        if len(xs) >= 2:
+            x_left  = int(xs[0])
+            x_right = int(xs[-1])
+        else:
+            # measure_y 不在 mask 範圍內，用 mask 水平範圍備援
+            x_left  = int(trunk_pts[:, 0].min())
+            x_right = int(trunk_pts[:, 0].max())
+
+        # 畫紅色水平量測線
         cv2.line(image,
                  (x_left, measure_y), (x_right, measure_y),
                  color=(0, 0, 255), thickness=2)
 
-        # 在線的左端畫圓點（標示量測起點）
-        cv2.circle(image, (x_left, measure_y),
-                   radius=5, color=(0, 0, 255), thickness=-1)
-
-        # 在線的右端畫圓點（標示量測終點）
-        cv2.circle(image, (x_right, measure_y),
-                   radius=5, color=(0, 0, 255), thickness=-1)
+        # 左右端點圓點
+        cv2.circle(image, (x_left,  measure_y), radius=5, color=(0, 0, 255), thickness=-1)
+        cv2.circle(image, (x_right, measure_y), radius=5, color=(0, 0, 255), thickness=-1)
 
     def _draw_status_label(self, image: np.ndarray, result) -> None:
         """

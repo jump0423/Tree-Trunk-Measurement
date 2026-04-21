@@ -18,5 +18,6 @@ class MeasurementResult:
     warnings:      list            = field(default_factory=list)
 
     # 紀錄
-    timestamp:     str             = ""
-    image_file:    str             = ""
+    timestamp:      str             = ""
+    image_file:     str             = ""
+    measurement_y:  float           = 0.0   # 實際量測位置的 y 座標（像素），供 visualizer 畫線用

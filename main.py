@@ -58,8 +58,9 @@ def main():
     focal_mm, sensor_w = handler.get_camera_params()  # 相機參數
     distance_m     = handler.get_distance()        # 拍攝距離
 
-    # 讀取圖片（OpenCV 格式，BGR 色彩空間）
-    image = cv2.imread(image_path)
+    # 讀取圖片（用 np.fromfile + imdecode 支援中文路徑）
+    buf = np.fromfile(image_path, dtype=np.uint8)
+    image = cv2.imdecode(buf, cv2.IMREAD_COLOR)
     if image is None:
         print(f"錯誤：無法讀取圖片 {image_path}")
         return
@@ -85,7 +86,9 @@ def main():
     # 失敗時回傳 None，程式不會中斷，自動切換到備援方法
 
     qr_detector = QRDetector()
-    qr_result   = qr_detector.detect(image)  # 成功回傳像素寬度，失敗回傳 None
+    if config.USE_QR:
+        qr_result = qr_detector.detect(image)  # 成功回傳像素寬度，失敗回傳 None
+    # USE_QR=False 時 is_detected() 保持 False，自動走焦距法
 
     # ── 步驟 4：計算比例尺和 DBH ──────────────────────────────
 
@@ -93,7 +96,7 @@ def main():
     result_a = None  # 方法一結果（QR code 比例尺）
     result_b = None  # 方法二結果（焦距公式備援）
 
-    if qr_detector.is_detected():
+    if config.USE_QR and qr_detector.is_detected():
         # ── 方法一：QR code 比例尺 ────────────────────────────
         # ① 用 QRCalculator 將 QR code 像素寬度換算成比例尺（cm/px）
         qr_calc = QRCalculator()
@@ -156,10 +159,11 @@ def main():
     result    = validator.validate(result_a, result_b)
 
     # 把這次的額外資訊補進結果物件
-    result.confidence  = confidence
-    result.diameter_std = geo_result_b["std_cm"]
-    result.warnings    = warnings
-    result.image_file  = image_path
+    result.confidence    = confidence
+    result.diameter_std  = geo_result_b["std_cm"]
+    result.warnings      = warnings
+    result.image_file    = image_path
+    result.measurement_y = target_y_b   # 實際胸高 y 座標，傳給 visualizer 畫線
 
     # ── 步驟 7：在圖片上繪製結果 ─────────────────────────────
     # 畫出樹幹遮罩、胸高測量線、DBH 數值、狀態碼

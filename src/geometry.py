@@ -6,6 +6,7 @@
 # 所有跟像素轉公分有關的數學都集中在這裡
 # =============================================================
 
+import cv2
 import numpy as np
 import config
 
@@ -144,24 +145,32 @@ class GeometryEngine:
 
         half = config.DBH_SLICE_COUNT // 2  # 等於 10
 
+        # YOLO 的 masks.xy 是稀疏多邊形輪廓（每幾個像素才有一個頂點）
+        # 直接用點座標搜尋每條切片會找不到足夠的點
+        # 解法：先把多邊形填充成密集的二值 bitmap，再逐行掃描找 x 範圍
+        x_max = int(trunk_pts[:, 0].max()) + 1
+        y_max = int(trunk_pts[:, 1].max()) + 1
+        raster = np.zeros((y_max + 1, x_max + 1), dtype=np.uint8)
+        pts_int = trunk_pts.astype(np.int32).reshape((-1, 1, 2))
+        cv2.fillPoly(raster, [pts_int], 255)
+
         widths_px = []  # 用來存每條切片量到的樹幹寬度
 
         for offset in range(-half, half):
-            # 這條切片的 y 座標
-            y = target_y + offset
+            y = int(target_y + offset)
 
-            # 找出所有 y 座標在 y ± 1 範圍內的輪廓點
-            # 用容差 1.0 是因為 YOLO 的輪廓點不一定剛好落在整數像素上
-            nearby = trunk_pts[
-                np.abs(trunk_pts[:, 1] - y) <= 1.0
-            ]
+            # 確保 y 在 bitmap 範圍內
+            if y < 0 or y >= raster.shape[0]:
+                continue
 
-            # 這條切片至少要有 2 個點（左邊緣和右邊緣）才能算寬度
-            if len(nearby) < 2:
-                continue  # 這條切片沒有足夠的點，跳過
+            # 找出該行所有被填充的 x 座標
+            xs = np.where(raster[y, :] > 0)[0]
 
-            # 用最右邊的 x 減去最左邊的 x，就是這條切片的樹幹寬度
-            width = nearby[:, 0].max() - nearby[:, 0].min()
+            # 至少要有左右兩個邊緣點才能算寬度
+            if len(xs) < 2:
+                continue
+
+            width = float(xs[-1] - xs[0])
             widths_px.append(width)
 
         # ── 第二步：判斷有效切片數是否足夠 ───────────────────────
