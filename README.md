@@ -1,116 +1,235 @@
-## 資料夾結構
 
-| 路徑 | 說明 |
-| :--- | :--- |
-| main.py | 唯一程式入口，串接所有模組，不含業務邏輯 |
-| config.py | 所有參數集中管理，修改數值只需動此一個檔案 |
-| best.pt | YOLOv11n-seg 訓練完成的模型權重 |
-| requirements.txt | 依賴套件清單（含版本號） |
-| .gitignore | 排除輸出資料夾、__pycache__ 等 |
-| src/__init__.py | 將 src 標示為 Python 套件 |
-| src/models.py | MeasurementResult dataclass，模組間傳遞的資料結構 |
-| src/trunk_detector.py | TrunkDetector：YOLO 偵測樹幹 |
-| src/qr_detector.py | QRDetector：pyzbar 偵測 QR code |
-| src/geometry.py | GeometryEngine：20 切片 + IQR 計算樹徑 |
-| src/qr_calculator.py | QRCalculator：方法一計算邏輯 |
-| src/focal_calculator.py | FocalCalculator：方法二計算邏輯 |
-| src/validator.py | Validator：雙驗證判斷，建立 MeasurementResult |
-| src/input_handler.py | InputHandler：所有使用者輸入介面 |
-| src/visualizer.py | Visualizer：圖片標注繪製 |
-| src/file_manager.py | FileManager：存檔與 CSV 寫入 |
-| src/error_checker.py | ErrorChecker：選配，目前留空，核心穩定後再實作 |
-| measured_result/ | 自動建立，存放標注圖片與 measurements.csv |
-| training_files/ | Colab 訓練腳本、data.yaml、訓練記錄 |
 
----
 
-## 各模組職責說明
+Tree-Trunk-Measurement
+專案架構詳細說明
 
-### InputHandler — 使用者輸入
-（唯一負責與使用者溝通的模組）
-所有輸入驗證集中於此，其他模組完全不處理輸入錯誤。未來若改成 GUI 或讀取設定檔，只需改此模組。
+共 19 個路徑　·　10 個類別　·　含所有方法說明
+標籤：朋友 = 沿用原有  /  我新增 = 本次實作  /  共用調整 = 兩人協作
 
-| 方法 | 職責 |
-| :--- | :--- |
-| get_image_path() | tkinter 彈出視窗，讓使用者選擇圖片，回傳檔案路徑 |
-| get_camera_params() | 請使用者輸入焦距（mm）與感光元件寬度（mm） |
-| get_distance() | 請使用者輸入距離，超過 MAX_DISTANCE_M 顯示警告 |
-| _validate_distance(d) | 距離合法性檢查，回傳布林值（內部使用） |
+根目錄　— 設定、模型、環境
+main.py    — 類別 main()
+唯一程式入口。依序呼叫各模組串接完整流程，本身不含任何業務邏輯。
+  共用調整  
+| 方法 | 說明 |
+| --- | --- |
+| main() | 啟動整個測量流程：InputHandler → TrunkDetector → QRDetector → QRCalculator / FocalCalculator → Validator → Visualizer → FileManager |
 
-### TrunkDetector — YOLO 偵測樹幹
-封裝 YOLOv11 模型。detect() 把圖片丟給 best.pt，取回樹幹的輪廓座標點列表（masks.xy）。
+config.py    — 類別 （無類別，全域常數）
+所有可調整參數集中管理。未來修改任何數值只需動此一個檔案，不需要進入各模組。
+  共用調整  
+| 參數名稱 | 預設值 | 說明 |
+| --- | --- | --- |
+| QR_REAL_SIZE_CM | 5.0 | QR code 真實尺寸（公分） |
+| MAX_DISTANCE_M | 7.0 | 拍攝距離上限警告閾值（公尺） |
+| CONF_THRESHOLD | 0.65 | YOLO 信心度閾值，低於此值的框不採用 |
+| MIN_MARKER_PX | 30 | QR code 最小有效像素寬度，低於此值視為太遠、比例尺不可信 |
+| CAMERA_HEIGHT_M | 1.3 | 胸徑測量高度（公尺），從 mask 最底部往上計算，預設符合林業標準 1.3m |
+| DBH_SLICE_COUNT | 20 | geometry.py 計算樹徑時的水平切片數量 |
+| MIN_VALID_SLICES | 8 | 最少有效切片數，低於此值視為測量失敗 |
+| SIMILARITY_THRESHOLD | 0.80 | 雙驗證相似度門檻（80%），低於則輸出警告 |
+| MODEL_PATH | "best.pt" | YOLO 模型權重檔路徑 |
+| OUTPUT_DIR | "~/Desktop/results" | 結果輸出目錄（預設桌面，不污染專案） |
 
-| 方法 | 職責 |
-| :--- | :--- |
-| __init__(model_path, conf) | 載入 best.pt 模型，設定信心度閾值，只執行一次 |
-| detect(image) | 執行 YOLO 推論，回傳 masks.xy（輪廓座標）與信心度 |
-| get_trunk_pixel_width(mask) | 從 masks.xy 計算樹幹最寬處的像素距離 |
-| is_trunk_complete(box, img_shape) | 檢查偵測框是否碰到影像邊緣，是則回傳 False 並警告 |
+best.pt    — 類別 （非 Python 檔）
+YOLOv11n-seg 訓練完成的模型權重檔。只偵測 trunk 單一類別。由朋友訓練後放置於根目錄，trunk_detector.py 載入使用。
+  朋友  
 
-### QRDetector — pyzbar 偵測 QR code
-封裝 pyzbar 套件，完全獨立於 YOLO，不需要任何訓練資料。失敗時回傳 None 而非拋出例外，讓 main.py 優雅切換備援。
+requirements.txt    — 類別 （非 Python 檔）
+依賴套件清單，鎖定版本號確保不同環境行為一致。
+  共用調整  
+| 方法 | 說明 |
+| --- | --- |
+| ultralytics >= 8.0.0 | YOLOv11 核心套件 |
+| opencv-python >= 4.8.0 | 影像處理（偵測、繪圖） |
+| opencv-contrib-python | OpenCV 額外模組 |
+| numpy >= 1.24.0 | 數值計算 |
+| pyzbar >= 0.1.9 | QR code 偵測與解碼 |
+| scipy | IQR 統計計算（geometry.py 使用） |
 
-| 方法 | 職責 |
-| :--- | :--- |
-| detect(image) | 掃描整張圖片找 QR code，成功回傳像素寬度，失敗回傳 None |
-| is_detected() | 回傳布林值，main.py 用此判斷走方法一還是直接走備援 |
+.gitignore    — 類別 （非 Python 檔）
+排除不需要進版控的檔案與資料夾，保持 repo 整潔。
+  朋友  
+| 方法 | 說明 |
+| --- | --- |
+| measured_result/ | 輸出結果資料夾，每次執行自動產生 |
+| __pycache__/ | Python 快取，自動產生 |
+| *.pt | 模型權重檔（體積大，建議用 Git LFS 或排除） |
+| *.pyc | Python 編譯快取 |
 
-### GeometryEngine — 核心幾何計算
-整個系統精度最關鍵的模組。採用 20 切片 + IQR 過濾，比單一像素測量更穩定。
-target_y = img_height ÷ 2，因為相機水平架設在 1.3m，畫面垂直中點就是 1.3m 的位置。
 
-| 方法 | 職責 |
-| :--- | :--- |
-| get_diameter_at_height(trunk_pts, target_y, scale) | 在 target_y 附近取 20 條水平切片，IQR 過濾異常值後取均值，回傳 {diameter_cm, std_cm, confidence} |
+src/　— 核心套件
+src/__init__.py    — 類別 （空檔案）
+將 src 資料夾標示為 Python 套件，使 from src.trunk_detector import TrunkDetector 語法可正常運作。
+  朋友  
 
-### QRCalculator / FocalCalculator — 兩種計算方法
+src/models.py    — 類別 MeasurementResult
+定義所有模組間傳遞的資料結構（Python dataclass）。確保各模組溝通格式一致，不傳遞散亂的 dict 或 tuple。
+  共用調整  
+| 欄位名稱 | 型別 | 說明 |
+| --- | --- | --- |
+| diameter_cm | float | 最終輸出樹徑（公分） |
+| method | str | "dual" / "qr_only" / "focal_only" |
+| status | str | "verified" / "mismatch" / "qr_failed" |
+| result_a | float | None | 方法一結果（QR code 失靈時為 None） |
+| result_b | float | 方法二結果（焦距公式） |
+| confidence | float | YOLO 偵測信心度分數 |
+| diameter_std | float | 切片標準差，反映測量穩定性（geometry.py 提供） |
+| warnings | list[str] | 警告訊息列表（error_checker 使用，預設空列表） |
+| timestamp | str | 測量日期與時間 |
+| image_file | str | 來源圖片檔名 |
 
-| 模組 | 方法 | 公式 |
-| :--- | :--- | :--- |
-| QRCalculator | calculate(trunk_px, qr_px) | trunk_px × (5.0 ÷ qr_px) |
-| FocalCalculator | calculate(trunk_px, distance_m) | trunk_px × distance_cm ÷ focal_px |
-| FocalCalculator | _to_focal_px() | (焦距_mm ÷ 感光元件寬_mm) × 影像像素寬 |
 
-### Validator — 雙驗證，建立 MeasurementResult
-核心驗證邏輯。比較兩方法差異率，判斷輸出狀態，建立並填入 MeasurementResult 所有欄位後傳出。
+偵測層　— 負責「找到東西在哪裡」，不做任何計算
+src/trunk_detector.py    — 類別 TrunkDetector
+封裝 YOLOv11 模型，偵測樹幹並回傳輪廓點與邊界框，包含邊緣完整性檢查。
+  輔負責  
+| 方法 | 說明 |
+| --- | --- |
+| __init__(model_path, conf) | 載入 YOLO 模型，設定信心度閾值（從 config.py 傳入） |
+| detect(image) | 執行推論，回傳 dict {"masks_xy": 輪廓點陣列, "confidence": 信心度, "box": 邊界框 [x1,y1,x2,y2]}；偵測失敗回傳 None |
+| get_trunk_pixel_width(mask) | 從輪廓點陣列計算樹幹最寬處的像素距離（最右 x − 最左 x） |
+| is_trunk_complete(box, img_shape) | 檢查偵測框是否碰到影像邊緣，判斷樹幹是否完整入鏡 |
 
-| 方法 | 職責 |
-| :--- | :--- |
-| __init__(threshold) | 設定相似度門檻，預設 0.80（80%） |
-| validate(result_a, result_b) | 比較差異率，建立並回傳完整的 MeasurementResult 物件 |
-| _similarity(a, b) | 計算差異率 = |a-b| ÷ max(a,b)（內部使用） |
+src/qr_detector.py    — 類別 QRDetector
+封裝 pyzbar，偵測影像中的 QR code 並回傳像素寬度。失敗時回傳 None（不拋出例外），讓主流程可以優雅地切換至備援方法。
+  朋友  
+| 方法 | 說明 |
+| --- | --- |
+| detect(image) | 回傳 QR code 像素寬度。偵測失敗時回傳 None，不中斷程式 |
+| is_detected() | 回傳布林值，供 main.py 判斷是否執行方法一（QR 比例尺） |
 
-### Visualizer — 圖片標注繪製
 
-| 方法 | 職責 |
-| :--- | :--- |
-| draw(image, detection, result) | 統一入口，依序呼叫以下三個內部方法 |
-| _draw_mask() | 在圖片上繪製半透明樹幹分割遮罩（YOLO 的 masks.xy） |
-| _draw_diameter_line() | 在畫面垂直中點（1.3m）繪製紅色水平測量線 |
-| _draw_status_label() | 右上角顯示樹徑數值、狀態碼、YOLO confidence |
+計算層　— 負責「算出數值」，不做偵測
+src/geometry.py    — 類別 GeometryEngine
+集中所有幾何運算邏輯，與 YOLO 完全解耦，可獨立進行單元測試。採用 20 切片 + IQR 過濾異常值的方式計算樹徑，比單一像素寬測量精準。
+  我新增  
+| 方法 | 說明 |
+| --- | --- |
+| compute_target_y(trunk_pts, scale) | 根據樹幹輪廓點與比例尺，計算胸高（1.3m）對應的影像 y 座標；比例尺或輪廓點無效時回傳 -1.0 |
+| get_diameter_at_height(trunk_pts, target_y, scale) | 在 target_y 位置取 20 條水平切片，用 IQR 過濾異常值後取均值，回傳 {diameter_cm, std_cm, confidence} |
 
-### FileManager — 存檔管理
+src/qr_calculator.py    — 類別 QRCalculator
+方法一的計算邏輯。以 QR code 作為比例尺換算比例尺（cm/px），與偵測模組（qr_detector.py）分開，讓計算邏輯可獨立測試。
+  朋友  
+| 方法 | 說明 |
+| --- | --- |
+| compute_scale(qr_pixel_width) | 回傳比例尺（cm/px）：QR_REAL_SIZE_CM ÷ qr_pixel_width；像素寬度無效或低於 MIN_MARKER_PX 時回傳 0.0 |
 
-| 方法 | 職責 |
-| :--- | :--- |
-| __init__(output_dir) | 讀取 OUTPUT_DIR，若資料夾不存在則自動建立 |
-| save_image(image, source_path) | 儲存標注後圖片，以「原始檔名_時間戳.png」命名 |
-| save_csv(result) | 從 MeasurementResult 取出所有欄位，新增一列至 measurements.csv |
+src/focal_calculator.py    — 類別 FocalCalculator
+方法二的計算邏輯。根據針孔相機模型，利用使用者輸入的焦距與距離換算樹幹直徑，作為 QR code 失靈時的備援。
+  輔負責  
+| 方法 | 說明 |
+| --- | --- |
+| __init__(focal_mm, sensor_width_mm, img_width_px) | 初始化時計算並儲存像素焦距：focal_px = (focal_mm ÷ sensor_width_mm) × img_width_px |
+| calculate(trunk_px, distance_m) | 回傳樹徑（cm）：trunk_px × distance_cm ÷ focal_px |
+| _to_focal_px() | 無參數，直接回傳 __init__ 已計算好的 self._focal_px，供 main.py 換算比例尺使用 |
 
----
 
-## 專案分工表
+驗證層　— 比較兩種方法的結果，判斷輸出狀態
+src/validator.py    — 類別 Validator
+核心驗證邏輯。比較方法一與方法二的結果差異率，輸出最終狀態與 MeasurementResult 物件。與計算層和輸出層完全解耦。
+  共用調整  
+| 方法 | 說明 |
+| --- | --- |
+| __init__(threshold) | 設定相似度門檻（預設 0.80，由 config.py 傳入） |
+| validate(result_a, result_b) | QR code 成功時比較兩方法差異率，回傳 MeasurementResult；QR code 失靈時直接以方法二輸出 |
+| _similarity(a, b) | 計算相似度 = 1 − |a-b| ÷ max(a,b)，回傳 0.0~1.0（內部使用） |
 
-| 模組路徑 | 負責人 | 說明 |
-| :--- | :--- | :--- |
-| src/trunk_detector.py | **Morris** | Morris 負責，但框架由 jump 先建好 |
-| src/qr_detector.py | **Morris** | Morris 負責 |
-| src/geometry.py | **jump** | jump 負責（核心模組） |
-| src/qr_calculator.py | **Morris** | Morris 負責 |
-| src/focal_calculator.py | **Morris** | Morris 負責 |
-| src/validator.py | **共用** | 共用項目 |
-| src/input_handler.py | **Morris** | Morris 負責 |
-| src/visualizer.py | **共用** | 共用項目 |
-| src/file_manager.py | **Morris** | Morris 負責 |
-| src/error_checker.py | **jump** | jump 負責 |
-| main.py | **共用** | 共用項目 |
+
+Validator 輸出狀態碼說明
+| 狀態碼 | 觸發條件 | 輸出值 |
+| --- | --- | --- |
+| "verified" | QR code 成功，差異率 < 20% | (result_a + result_b) ÷ 2 |
+| "mismatch" | QR code 成功，差異率 ≥ 20% | result_b，標註警告 |
+| "qr_failed" | QR code 偵測失敗 | result_b，標註 QR code 失敗 |
+
+
+輸入 / 輸出層　— 處理使用者互動、圖片繪製、檔案存取
+src/input_handler.py    — 類別 InputHandler
+負責所有使用者輸入介面，包含圖片選擇視窗、數值輸入與驗證。所有輸入驗證集中於此，其他模組不處理輸入錯誤。
+  輔負責  
+| 方法 | 說明 |
+| --- | --- |
+| get_image_path() | 彈出 tkinter 視窗供使用者選擇圖片（支援 .jpg、.jpeg、.png、.bmp） |
+| get_camera_params() | 用對話框詢問焦距（mm）與感光元件寬度（mm），回傳 tuple(focal_mm, sensor_w) |
+| get_distance() | 詢問拍攝距離（公尺），若超過 MAX_DISTANCE_M 顯示警告但不強制阻擋 |
+| _validate_distance(d) | 距離合法性檢查（d > 0），回傳布林值（內部使用） |
+| _ask_value(root, title, prompt) | 彈出單行文字輸入對話框，回傳使用者輸入的字串（內部使用） |
+
+src/visualizer.py    — 類別 Visualizer
+負責在圖片上繪製偵測結果。以 draw() 作為統一入口，內部分工呼叫三個私有方法。
+  共用調整  
+| 方法 | 說明 |
+| --- | --- |
+| draw(image, detection, result) | 統一入口，依序呼叫以下三個內部方法完成完整標注，回傳繪製後的影像 |
+| _draw_mask(image, trunk_pts) | 繪製 YOLO Instance Segmentation 分割遮罩（半透明綠色覆蓋 + 輪廓線） |
+| _draw_diameter_line(image, trunk_pts) | 在輪廓垂直中點位置繪製紅色水平測量線與端點圓點 |
+| _draw_status_label(image, result) | 在圖片右上角標註狀態文字、樹徑數值、方法與 confidence 分數 |
+
+src/file_manager.py    — 類別 FileManager
+負責所有檔案存取。輸出目錄由 config.OUTPUT_DIR 控制，結果儲存於使用者指定路徑，不污染專案目錄。CSV 紀錄每次測量自動累積，不覆寫。
+  輔負責  
+| 方法 | 說明 |
+| --- | --- |
+| __init__(output_dir) | 展開 ~ 路徑，若資料夾不存在則自動建立，並設定 measurements.csv 的存放位置 |
+| save_image(image, source_path) | 儲存標注後圖片，以「原始檔名_時間戳.png」命名，固定存成 PNG |
+| save_csv(result) | 將 MeasurementResult 物件新增一列至 measurements.csv（append 模式，不覆寫舊資料） |
+
+
+選配模組　— 架構保留，核心流程穩定後再決定是否實作
+src/error_checker.py    — 類別 ErrorChecker
+在輸出前自動偵測潛在問題，偵測到問題後寫入 MeasurementResult.warnings 列表，不直接阻擋輸出。
+  我新增  
+| 方法 | 說明 |
+| --- | --- |
+| check_marker_tilt(contour) | 偵測 QR code 歪斜角度是否超過 15°，超過則寫入 warnings（需傳入 QR code 輪廓點陣列） |
+| check_marker_pixel_size(contour) | 偵測 QR code 在畫面中的像素大小是否低於 MIN_MARKER_PX，過小則換算不準確 |
+| check_trunk_completeness(mask, img_shape) | 偵測樹幹輪廓是否被影像左右邊緣裁切（容差 10px），是則寫入 warnings |
+
+注意：check_marker_tilt 與 check_marker_pixel_size 需傳入 QR code 輪廓點陣列（np.ndarray）。
+目前 QRDetector.detect() 只回傳像素寬度（float），待 QRDetector 改為同時回傳 polygon 後再於 main.py 中接上。
+
+
+自動生成目錄　— 由程式產生，不進版控
+measured_result/    — 類別 （自動建立的資料夾）
+由 FileManager.__init__() 在首次執行時自動建立，存放所有標注後圖片與 measurements.csv。已加入 .gitignore，不進版控。
+  朋友  
+| 方法 | 說明 |
+| --- | --- |
+| *.png | 標注後圖片，以「原始檔名_時間戳.png」命名 |
+| measurements.csv | 所有測量紀錄，每次執行自動累積新增一列，不覆寫 |
+
+training_files/    — 類別 （資料夾）
+存放 Colab 訓練腳本、data.yaml 設定檔與訓練記錄。訓練完成後將 best.pt 放回根目錄即可。
+  朋友  
+| 方法 | 說明 |
+| --- | --- |
+| train.ipynb | Google Colab 訓練腳本（含資料下載、訓練、評估步驟） |
+| data.yaml | Roboflow 匯出的資料集設定檔（類別名稱、路徑等） |
+| results/ | 訓練過程的 loss 曲線、混淆矩陣等評估圖表（自動產生） |
+
+
+附錄　所有路徑快速索引
+
+| 路徑 | 類別名稱 | 歸屬 | 所屬層次 |
+| --- | --- | --- | --- |
+| main.py | main() | 共用調整 | 入口層 |
+| config.py | （全域常數） | 共用調整 | 設定層 |
+| best.pt | （模型權重檔） | 朋友 | 根目錄 |
+| requirements.txt | （設定檔） | 共用調整 | 根目錄 |
+| .gitignore | （設定檔） | 朋友 | 根目錄 |
+| src/__init__.py | （空檔案） | 朋友 | src 套件 |
+| src/models.py | MeasurementResult | 共用調整 | 資料模型層 |
+| src/trunk_detector.py | TrunkDetector | 輔負責 | 偵測層 |
+| src/qr_detector.py | QRDetector | 朋友 | 偵測層 |
+| src/geometry.py | GeometryEngine | 我新增 | 計算層 |
+| src/qr_calculator.py | QRCalculator | 朋友 | 計算層 |
+| src/focal_calculator.py | FocalCalculator | 輔負責 | 計算層 |
+| src/validator.py | Validator | 共用調整 | 驗證層 |
+| src/input_handler.py | InputHandler | 輔負責 | 輸入輸出層 |
+| src/visualizer.py | Visualizer | 共用調整 | 輸入輸出層 |
+| src/file_manager.py | FileManager | 輔負責 | 輸入輸出層 |
+| src/error_checker.py | ErrorChecker | 我新增 | 選配 |
+| measured_result/ | （自動產生） | 朋友 | 輸出目錄 |
+| training_files/ | （資料夾） | 朋友 | 訓練檔案 |
