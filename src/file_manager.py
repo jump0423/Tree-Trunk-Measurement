@@ -16,6 +16,7 @@ import os       # 檔案路徑、資料夾操作
 import csv      # 讀寫 CSV 格式
 import datetime # 取得目前時間，用來產生時間戳記
 import cv2      # 儲存影像
+import numpy as np  # tofile 支援中文路徑儲存
 
 
 class FileManager:
@@ -82,8 +83,12 @@ class FileManager:
         output_filename = f"{name_only}_{timestamp}.png"
         output_path     = os.path.join(self.output_dir, output_filename)
 
-        # 用 OpenCV 儲存影像
-        cv2.imwrite(output_path, image)
+        # 用 imencode + tofile 支援中文路徑（cv2.imwrite 在 Windows 中文路徑會失敗）
+        success, buf = cv2.imencode(".png", image)
+        if success:
+            np.array(buf).tofile(output_path)
+        else:
+            print(f"[FileManager] 影像編碼失敗，略過圖片儲存")
 
         print(f"標注圖片已儲存：{output_path}")
         return output_path

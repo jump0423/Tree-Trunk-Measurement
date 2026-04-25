@@ -20,45 +20,41 @@ class InputHandler:
     # 公開方法
     # ----------------------------------------------------------
 
-    def get_image_path(self) -> str:
+    def get_image_paths(self) -> list:
         """
-        彈出 tkinter 檔案選擇視窗，讓使用者選一張圖片。
+        彈出 tkinter 檔案選擇視窗，讓使用者一次選一張或多張圖片。
 
         支援格式：.jpg、.jpeg、.png、.bmp
 
         回傳值：
-            str：使用者選擇的圖片完整路徑
+            list[str]：使用者選擇的圖片完整路徑清單
 
         例外：
             若使用者關閉視窗沒有選擇任何檔案，拋出 ValueError
         """
 
-        # 建立一個暫時的 tkinter 根視窗
-        # withdraw() 讓它隱藏在背景，使用者只看得到檔案選擇對話框
         root = tk.Tk()
         root.withdraw()
 
-        # 定義可選擇的檔案格式
         filetypes = [
             ("圖片檔案", "*.jpg *.jpeg *.png *.bmp"),
             ("所有檔案", "*.*"),
         ]
 
-        # 彈出檔案選擇視窗，讓使用者瀏覽並點選圖片
-        image_path = filedialog.askopenfilename(
-            title="請選擇要量測的樹幹照片",
+        # askopenfilenames（複數）允許按住 Ctrl/Shift 多選
+        image_paths = filedialog.askopenfilenames(
+            title="請選擇要量測的樹幹照片（可按 Ctrl 多選）",
             filetypes=filetypes
         )
 
-        # 關閉暫時的根視窗，避免背景留有殘餘視窗
         root.destroy()
 
-        # 使用者沒有選任何檔案（直接關閉對話框）
-        if not image_path:
+        if not image_paths:
             raise ValueError("未選擇圖片，程式結束")
 
-        print(f"已選擇圖片：{image_path}")
-        return image_path
+        paths = list(image_paths)
+        print(f"已選擇 {len(paths)} 張圖片")
+        return paths
 
     def get_camera_params(self) -> tuple:
         """
