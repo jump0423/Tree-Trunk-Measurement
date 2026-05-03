@@ -23,10 +23,12 @@ from src.trunk_detector  import TrunkDetector
 from src.qr_detector     import QRDetector
 from src.qr_calculator   import QRCalculator
 from src.focal_calculator import FocalCalculator
-from src.validator       import Validator
-from src.input_handler   import InputHandler
-from src.visualizer      import Visualizer
-from src.file_manager    import FileManager
+from src.validator        import Validator
+from src.input_handler    import InputHandler
+from src.visualizer       import Visualizer
+from src.file_manager     import FileManager
+from src.species_manager  import SpeciesManager
+from src.carbon_calculator import CarbonCalculator
 
 
 def main():
@@ -46,6 +48,12 @@ def main():
     image_paths        = handler.get_image_paths()     # tkinter 多選視窗，回傳 list
     focal_mm, sensor_w = handler.get_camera_params()   # 相機參數（所有張共用）
     distance_m         = handler.get_distance()        # 拍攝距離（所有張共用）
+
+    # ── 樹種選擇（所有張共用）────────────────────────────────
+    species_mgr = SpeciesManager()
+    species     = species_mgr.select_species()         # 彈出樹種選擇視窗
+
+    carbon_calc = CarbonCalculator()
 
     total = len(image_paths)
 
@@ -141,6 +149,13 @@ def main():
         result.warnings      = warnings
         result.image_file    = image_path
         result.measurement_y = target_y_b   # 實際胸高 y 座標，傳給 visualizer 畫線
+
+        # ── 固碳量計算 ─────────────────────────────────────────
+        carbon_result        = carbon_calc.calculate(result.diameter_cm, species)
+        result.species_name  = species["name"]
+        result.biomass_kg    = carbon_result["biomass_kg"]
+        result.carbon_kg     = carbon_result["carbon_kg"]
+        result.co2_kg        = carbon_result["co2_kg"]
 
         # ── 在圖片上繪製結果 ──────────────────────────────────────
         # 畫出樹幹遮罩、胸高測量線、DBH 數值、狀態碼

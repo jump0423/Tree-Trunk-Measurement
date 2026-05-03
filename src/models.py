@@ -17,6 +17,12 @@ class MeasurementResult:
     diameter_std:  float           = 0.0
     warnings:      list            = field(default_factory=list)
 
+    # 固碳量
+    species_name:   str             = ""    # 樹種名稱
+    biomass_kg:     float           = 0.0   # 生質量（公斤）
+    carbon_kg:      float           = 0.0   # 碳儲量（公斤）
+    co2_kg:         float           = 0.0   # CO2 固定當量（公斤）
+
     # 紀錄
     timestamp:      str             = ""
     image_file:     str             = ""

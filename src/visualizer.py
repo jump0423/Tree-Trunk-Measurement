@@ -197,6 +197,13 @@ class Visualizer:
             f"Conf:   {result.confidence:.2f}",
         ]
 
+        # 若有樹種與固碳量資料則額外顯示
+        if result.species_name:
+            lines.append(f"Species: {result.species_name}")
+        if result.carbon_kg > 0:
+            lines.append(f"Carbon:  {result.carbon_kg:.2f} kg")
+            lines.append(f"CO2 eq:  {result.co2_kg:.2f} kg")
+
         # 文字樣式設定
         font       = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.7   # 字體大小倍率
