@@ -119,6 +119,10 @@ class FileManager:
             "confidence",    # YOLO 信心度
             "diameter_std",  # 直徑標準差
             "warnings",      # 警告訊息
+            "species_name",  # 樹種名稱
+            "biomass_kg",    # 生質量（公斤）
+            "carbon_kg",     # 碳儲量（公斤）
+            "co2_kg",        # CO2 固定當量（公斤）
         ]
 
         # 判斷 CSV 是否已存在（決定要不要寫標題列）
@@ -147,6 +151,10 @@ class FileManager:
                 "diameter_std": result.diameter_std,
                 # warnings 是 list，轉成用分號分隔的字串存入 CSV
                 "warnings":     "; ".join(result.warnings),
+                "species_name": result.species_name,
+                "biomass_kg":   result.biomass_kg,
+                "carbon_kg":    result.carbon_kg,
+                "co2_kg":       result.co2_kg,
             })
 
         print(f"量測結果已寫入 CSV：{self.csv_path}")
