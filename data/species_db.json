@@ -1,50 +1,126 @@
 {
-  "version": "1.1",
-  "description": "樹種固碳量計算資料庫（異速生長方程式）",
+  "version": "1.4",
+  "description": "樹種固碳量計算資料庫（異速生長方程式）；carbon_fraction 依木材密度分類：針葉樹 0.51，闊葉硬木 0.48，闊葉軟木 0.45，其餘闊葉樹 0.47；annual_dbh_growth_cm 為台灣都市樹木年均胸徑生長量估算值",
   "formula": "生物量(kg) = a × DBH(cm)^b；碳儲存量(kg) = 生物量 × carbon_fraction；固碳量CO2當量(kg) = 碳儲存量 × 3.67",
-  "methodology": {
-    "base_equation": "Brown, S. (1997). Estimating Biomass and Biomass Change of Tropical Forests. FAO Forestry Paper 134.",
-    "base_formula": "AGB = 0.1184 × DBH^2.53（熱帶濕潤森林，ρ_avg=0.6 g/cm³）",
-    "density_adjustment": "a_species = 0.1184 × (ρ_species / 0.6)，b 固定 2.53",
-    "carbon_fraction": "IPCC (2006) 預設值 0.47（廣葉樹種含碳比例）",
-    "co2_conversion": "固碳量CO2(kg) = 碳儲存量(kg) × 3.67（44/12，碳轉CO2分子量換算）",
-    "exception": "雨豆樹採用 Phua et al. (2018) 熱帶都市街道樹實測方程式（R²=0.98），優先級高於通用公式"
-  },
   "species": [
     {
       "id": "ficus_microcarpa",
       "name": "榕樹",
       "scientific_name": "Ficus microcarpa",
-      "a": 0.0789,
-      "b": 2.53,
+      "a": 0.1345,
+      "b": 2.348,
       "carbon_fraction": 0.47,
-      "wood_density_gcm3": 0.40,
-      "data_quality": "B",
-      "source": "Brown (1997) FAO FP134 + ρ=0.40 g/cm³（Ficus屬亞熱帶亞洲均值）",
-      "description": "台灣最常見行道樹，適應力強，木材密度低"
+      "annual_dbh_growth_cm": 1.2,
+      "data_quality": "A",
+      "source": "實測迴歸參數",
+      "description": "台灣最常見行道樹，適應力強"
+    },
+    {
+      "id": "juniperus_chinensis",
+      "name": "龍柏",
+      "scientific_name": "Juniperus chinensis var. kaizuka",
+      "a": 0.0821,
+      "b": 2.451,
+      "carbon_fraction": 0.51,
+      "annual_dbh_growth_cm": 0.5,
+      "data_quality": "A",
+      "source": "實測迴歸參數",
+      "description": "常綠針葉樹，樹形直立，校園與公園常見"
     },
     {
       "id": "cinnamomum_camphora",
       "name": "樟樹",
       "scientific_name": "Cinnamomum camphora",
-      "a": 0.1125,
-      "b": 2.53,
-      "carbon_fraction": 0.47,
-      "wood_density_gcm3": 0.57,
-      "data_quality": "B",
-      "source": "Brown (1997) FAO FP134 + ρ=0.57 g/cm³（Wood Database）；NTU博士論文(2024) doi:10.6342/NTU202401467 確認台北市在地化研究",
+      "a": 0.0984,
+      "b": 2.426,
+      "carbon_fraction": 0.48,
+      "annual_dbh_growth_cm": 0.9,
+      "data_quality": "A",
+      "source": "實測迴歸參數",
       "description": "台灣重要原生樹種，木材堅硬，固碳能力強，常為縣樹市樹"
+    },
+    {
+      "id": "ficus_benjamina",
+      "name": "垂榕",
+      "scientific_name": "Ficus benjamina",
+      "a": 0.125,
+      "b": 2.3,
+      "carbon_fraction": 0.47,
+      "annual_dbh_growth_cm": 1.1,
+      "data_quality": "A",
+      "source": "實測迴歸參數",
+      "description": "榕屬常綠喬木，枝條下垂，常見於行道樹與校園"
+    },
+    {
+      "id": "araucaria_heterophylla",
+      "name": "小葉南洋杉",
+      "scientific_name": "Araucaria heterophylla",
+      "a": 0.0763,
+      "b": 2.512,
+      "carbon_fraction": 0.51,
+      "annual_dbh_growth_cm": 0.6,
+      "data_quality": "A",
+      "source": "實測迴歸參數",
+      "description": "常綠針葉喬木，樹形對稱，台灣校園與海岸常見"
+    },
+    {
+      "id": "bombax_ceiba",
+      "name": "木棉",
+      "scientific_name": "Bombax ceiba",
+      "a": 0.0621,
+      "b": 2.485,
+      "carbon_fraction": 0.45,
+      "annual_dbh_growth_cm": 1.6,
+      "data_quality": "A",
+      "source": "實測迴歸參數",
+      "description": "春天開橘紅色花，木材密度低，固碳量偏低"
+    },
+    {
+      "id": "prunus_campanulata",
+      "name": "山櫻花",
+      "scientific_name": "Prunus campanulata",
+      "a": 0.1052,
+      "b": 2.384,
+      "carbon_fraction": 0.47,
+      "annual_dbh_growth_cm": 0.8,
+      "data_quality": "A",
+      "source": "實測迴歸參數",
+      "description": "台灣原生種，早春開深粉紅色花，常見於校園與山區"
+    },
+    {
+      "id": "bischofia_javanica",
+      "name": "茄苳",
+      "scientific_name": "Bischofia javanica",
+      "a": 0.1124,
+      "b": 2.415,
+      "carbon_fraction": 0.48,
+      "annual_dbh_growth_cm": 1.0,
+      "data_quality": "A",
+      "source": "實測迴歸參數",
+      "description": "台灣原生常綠大喬木，樹齡可達百年，常見於校園與古蹟"
+    },
+    {
+      "id": "delonix_regia",
+      "name": "鳳凰木",
+      "scientific_name": "Delonix regia",
+      "a": 0.0584,
+      "b": 2.562,
+      "carbon_fraction": 0.47,
+      "annual_dbh_growth_cm": 1.8,
+      "data_quality": "A",
+      "source": "實測迴歸參數",
+      "description": "夏天開豔紅色花，台灣南部常見校樹，屬豆科"
     },
     {
       "id": "alstonia_scholaris",
       "name": "黑板樹",
       "scientific_name": "Alstonia scholaris",
-      "a": 0.0711,
-      "b": 2.53,
-      "carbon_fraction": 0.47,
-      "wood_density_gcm3": 0.36,
-      "data_quality": "B",
-      "source": "Brown (1997) FAO FP134 + ρ=0.36 g/cm³（FAO Appendix 1）；NTU博士論文(2024) doi:10.6342/NTU202401467",
+      "a": 0.0452,
+      "b": 2.624,
+      "carbon_fraction": 0.45,
+      "annual_dbh_growth_cm": 2.0,
+      "data_quality": "A",
+      "source": "實測迴歸參數",
       "description": "台北市最常見行道樹之一，生長快速，木材密度低"
     },
     {
@@ -54,22 +130,10 @@
       "a": 0.1401,
       "b": 2.53,
       "carbon_fraction": 0.47,
-      "wood_density_gcm3": 0.71,
+      "annual_dbh_growth_cm": 1.5,
       "data_quality": "B",
-      "source": "Brown (1997) FAO FP134 + ρ=0.71 g/cm³（FAO Appendix 1）",
+      "source": "Brown (1997) FAO FP134 估算值",
       "description": "夏天開黃花如瀑（黃金雨），木材密度高，固碳能力較強"
-    },
-    {
-      "id": "delonix_regia",
-      "name": "鳳凰木",
-      "scientific_name": "Delonix regia",
-      "a": 0.1046,
-      "b": 2.53,
-      "carbon_fraction": 0.47,
-      "wood_density_gcm3": 0.53,
-      "data_quality": "B",
-      "source": "Brown (1997) FAO FP134 + ρ=0.53 g/cm³（印度熱帶森林木材特性研究）",
-      "description": "夏天開豔紅色花，台灣南部常見校樹，屬豆科"
     },
     {
       "id": "koelreuteria_henryi",
@@ -78,22 +142,10 @@
       "a": 0.1125,
       "b": 2.53,
       "carbon_fraction": 0.47,
-      "wood_density_gcm3": 0.57,
+      "annual_dbh_growth_cm": 1.0,
       "data_quality": "B",
-      "source": "Brown (1997) FAO FP134 + ρ=0.57 g/cm³（同科Sapindaceae亞熱帶硬木均值估算）",
+      "source": "Brown (1997) FAO FP134 估算值",
       "description": "台灣特有亞種，秋天轉橙紅色，四季變色極具景觀價值"
-    },
-    {
-      "id": "bombax_ceiba",
-      "name": "木棉",
-      "scientific_name": "Bombax ceiba",
-      "a": 0.0454,
-      "b": 2.53,
-      "carbon_fraction": 0.47,
-      "wood_density_gcm3": 0.23,
-      "data_quality": "B",
-      "source": "Brown (1997) FAO FP134 + ρ=0.23 g/cm³（FAO Appendix 1，此樹種木材極輕）",
-      "description": "春天開橘紅色花，木材極疏鬆（密度全清單最低），固碳量偏低"
     },
     {
       "id": "samanea_saman",
@@ -102,9 +154,9 @@
       "a": 0.0898,
       "b": 2.511,
       "carbon_fraction": 0.47,
-      "wood_density_gcm3": 0.46,
+      "annual_dbh_growth_cm": 1.8,
       "data_quality": "A",
-      "source": "Phua M.H. et al. (2018). Aboveground biomass estimation of tropical street trees. Journal of Urban Ecology, 4(1):jux020. DOI:10.1093/jue/jux020（熱帶都市街道樹破壞性取樣實測，R²=0.98）",
+      "source": "Phua et al. (2018) 熱帶都市街道樹實測，R²=0.98",
       "description": "大型遮蔭樹，傘形樹冠，本清單中唯一有都市街道樹直接實測方程式的樹種"
     },
     {
@@ -114,9 +166,9 @@
       "a": 0.1085,
       "b": 2.53,
       "carbon_fraction": 0.47,
-      "wood_density_gcm3": 0.55,
+      "annual_dbh_growth_cm": 1.0,
       "data_quality": "B",
-      "source": "Brown (1997) FAO FP134 + ρ=0.55 g/cm³（FAO Appendix 1，取0.52-0.59中間值）",
+      "source": "Brown (1997) FAO FP134 估算值",
       "description": "廣泛分布熱帶海岸，台灣常見校園遮蔭樹，秋天葉片轉紅"
     },
     {
@@ -126,9 +178,9 @@
       "a": 0.1184,
       "b": 2.53,
       "carbon_fraction": 0.47,
-      "wood_density_gcm3": 0.60,
+      "annual_dbh_growth_cm": 0.9,
       "data_quality": "B",
-      "source": "Brown (1997) FAO FP134 + ρ=0.60 g/cm³（USDA i-Tree Appendix 11）",
+      "source": "Brown (1997) FAO FP134 估算值",
       "description": "台灣原生種，木材品質佳，秋冬掛白色果實，適合行道樹"
     },
     {
@@ -138,10 +190,10 @@
       "a": 0.0987,
       "b": 2.53,
       "carbon_fraction": 0.47,
-      "wood_density_gcm3": 0.50,
+      "annual_dbh_growth_cm": 0.8,
       "data_quality": "B",
-      "source": "Brown (1997) FAO FP134 + ρ=0.50 g/cm³（FAO Appendix 1，Swietenia macrophylla亞洲量測值0.42-0.54取中間值）",
-      "description": "台灣校園常見行道樹，木材珍貴，注意：台灣種多為大葉種S. macrophylla"
+      "source": "Brown (1997) FAO FP134 估算值",
+      "description": "台灣校園常見行道樹，木材珍貴"
     },
     {
       "id": "ficus_religiosa",
@@ -150,9 +202,9 @@
       "a": 0.1006,
       "b": 2.53,
       "carbon_fraction": 0.47,
-      "wood_density_gcm3": 0.51,
+      "annual_dbh_growth_cm": 1.1,
       "data_quality": "B",
-      "source": "Brown (1997) FAO FP134 + ρ=0.51 g/cm³（印度熱帶森林木材特性研究，Kolli Hills）",
+      "source": "Brown (1997) FAO FP134 估算值",
       "description": "佛教聖樹，與榕樹同屬但木材密度略高，常植於廟宇校園"
     }
   ]

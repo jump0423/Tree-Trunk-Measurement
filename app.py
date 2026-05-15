@@ -1,22 +1,27 @@
 # =============================================================
 # app.py — Flask 網頁後端入口
 #
-# 執行方式：python app.py
-# 區域網路存取：http://<你的電腦IP>:5000
+# 執行方式：雙擊 啟動.bat，或直接執行 python app.py
+# 系統會自動開啟瀏覽器到 http://localhost:5000
 #
 # API 端點：
-#   POST /api/measure              上傳圖片，回傳樹徑與固碳量
-#   GET  /api/species              取得所有樹種清單
-#   POST /api/species              新增樹種
-#   PUT  /api/species/<id>         更新樹種
-#   DELETE /api/species/<id>       刪除樹種
+#   GET  /                     前端頁面
+#   POST /api/measure          上傳圖片，回傳樹徑與固碳量
+#   GET  /api/species          取得所有樹種清單
+#   POST /api/species          新增樹種
+#   PUT  /api/species/<id>     更新樹種
+#   DELETE /api/species/<id>   刪除樹種
 # =============================================================
 
 import base64
+import socket
+import threading
+import time
+import webbrowser
 
 import cv2
 import numpy as np
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
 
 import config
@@ -31,7 +36,7 @@ from src.validator          import Validator
 from src.visualizer         import Visualizer
 
 app = Flask(__name__)
-CORS(app)  # 允許前端跨來源請求（前端在不同 port 時需要）
+CORS(app)
 
 # ── 所有模組啟動時初始化一次，不重複建立 ─────────────────────────
 print("載入 YOLO 模型中，請稍候...")
@@ -44,6 +49,15 @@ _carbon_calc = CarbonCalculator()
 _carbon_eq   = CarbonEquivalents()
 _species_mgr = SpeciesManager()
 print("伺服器就緒！")
+
+
+# ══════════════════════════════════════════════════════════════
+# 前端頁面
+# ══════════════════════════════════════════════════════════════
+
+@app.route("/")
+def index():
+    return render_template("index.html")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -90,6 +104,9 @@ def api_measure():
             "error": "缺少或格式錯誤的參數，需要：focal_mm, sensor_width, distance_m, species_id"
         }), 400
 
+    tree_age_str = request.form.get("tree_age", "").strip()
+    tree_age = int(tree_age_str) if tree_age_str.isdigit() and int(tree_age_str) > 0 else None
+
     # ── 找出對應樹種 ──────────────────────────────────────────────
     species = next(
         (s for s in _species_mgr.get_all_species() if s["id"] == species_id),
@@ -128,12 +145,13 @@ def api_measure():
     result_b     = geo_result_b["diameter_cm"]
 
     # ── 驗證與組裝結果 ────────────────────────────────────────────
-    warnings             = _checker.check_trunk_completeness(trunk_pts, image.shape)
+    checker_warnings     = _checker.check_trunk_completeness(trunk_pts, image.shape)
     result               = _validator.validate(None, result_b)
     result.confidence    = confidence
     result.diameter_std  = geo_result_b["std_cm"]
-    result.warnings      = warnings
     result.measurement_y = target_y_b
+    # 網頁版不使用 QR code，濾除 validator 產生的 QR 提示，保留 checker 的實質警告
+    result.warnings      = [w for w in result.warnings if "QR" not in w] + checker_warnings
 
     # ── 固碳量計算 ────────────────────────────────────────────────
     carbon_result        = _carbon_calc.calculate(result.diameter_cm, species)
@@ -141,6 +159,7 @@ def api_measure():
     result.biomass_kg    = carbon_result["biomass_kg"]
     result.carbon_kg     = carbon_result["carbon_kg"]
     result.co2_kg        = carbon_result["co2_kg"]
+    annual_co2_kg        = _carbon_calc.calculate_annual(result.diameter_cm, species, tree_age)
 
     # ── 固碳換算生活化比較 ────────────────────────────────────────
     equivalents = _carbon_eq.calculate(result.co2_kg)
@@ -159,6 +178,8 @@ def api_measure():
         "biomass_kg":      result.biomass_kg,
         "carbon_kg":       result.carbon_kg,
         "co2_kg":          result.co2_kg,
+        "annual_co2_kg":   annual_co2_kg,
+        "tree_age":        tree_age,
         "diameter_std":    round(result.diameter_std, 2),
         "warnings":        result.warnings,
         "equivalents":     equivalents,
@@ -172,24 +193,11 @@ def api_measure():
 
 @app.route("/api/species", methods=["GET"])
 def api_species_list():
-    """回傳所有樹種清單（陣列）"""
     return jsonify(_species_mgr.get_all_species())
 
 
 @app.route("/api/species", methods=["POST"])
 def api_species_add():
-    """
-    新增一筆樹種。
-
-    Request（JSON）：
-        name            ：樹種名稱（中文）必填
-        scientific_name ：學名              必填
-        a               ：異速生長係數 a    必填
-        b               ：異速生長指數 b    必填
-        carbon_fraction ：碳比例（建議 0.47）必填
-        source          ：數據來源          選填
-        description     ：描述              選填
-    """
     data = request.get_json()
     if not data:
         return jsonify({"error": "需要 JSON body"}), 400
@@ -219,12 +227,6 @@ def api_species_add():
 
 @app.route("/api/species/<species_id>", methods=["PUT"])
 def api_species_update(species_id):
-    """
-    更新指定樹種（部分欄位更新即可）。
-
-    URL param：species_id（即 GET /api/species 回傳的 id 欄位）
-    Request（JSON）：要更新的欄位
-    """
     data        = request.get_json()
     all_species = _species_mgr.get_all_species()
     idx         = next((i for i, s in enumerate(all_species) if s["id"] == species_id), None)
@@ -239,7 +241,6 @@ def api_species_update(species_id):
 
 @app.route("/api/species/<species_id>", methods=["DELETE"])
 def api_species_delete(species_id):
-    """刪除指定樹種"""
     all_species = _species_mgr.get_all_species()
     idx         = next((i for i, s in enumerate(all_species) if s["id"] == species_id), None)
 
@@ -251,10 +252,22 @@ def api_species_delete(species_id):
 
 
 # ══════════════════════════════════════════════════════════════
-# 啟動
+# 啟動（自動開啟瀏覽器）
 # ══════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    # host='0.0.0.0'：讓同一區域網路的裝置都能連線
-    # 朋友輸入你電腦的 IP + :5000 就能訪問，例如 http://192.168.1.88:5000
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    def _port_in_use(port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            return s.connect_ex(("localhost", port)) == 0
+
+    if _port_in_use(5000):
+        print("\n[提示] 系統已在運行中，直接開啟瀏覽器...")
+        webbrowser.open("http://localhost:5000")
+        input("按 Enter 關閉此視窗。")
+    else:
+        def _open_browser():
+            time.sleep(2)
+            webbrowser.open("http://localhost:5000")
+
+        threading.Thread(target=_open_browser, daemon=True).start()
+        app.run(host="0.0.0.0", port=5000, debug=False)

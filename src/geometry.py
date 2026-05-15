@@ -21,6 +21,7 @@
 #   本模組以 mask 最低點作為「地面基準」，往上計算 1.3m
 # =============================================================
 
+import cv2
 import numpy as np   # 數值計算：陣列操作、百分位數、平均值等
 import config        # 全域設定（DBH_HEIGHT_M、DBH_SLICE_COUNT 等）
 
@@ -204,34 +205,32 @@ class GeometryEngine:
         #   → 覆蓋 [target_y - 10, target_y + 9] 的範圍
         half = config.DBH_SLICE_COUNT // 2  # = 10
 
+        # YOLO 的 masks.xy 是稀疏多邊形輪廓（每幾個像素才有一個頂點）
+        # 直接搜尋每條切片附近的點，在稀疏輪廓下幾乎找不到足夠的點
+        # 解法：先把多邊形填充成密集的二值 bitmap，再逐行掃描找 x 範圍
+        x_max   = int(trunk_pts[:, 0].max()) + 1
+        y_max   = int(trunk_pts[:, 1].max()) + 1
+        raster  = np.zeros((y_max + 1, x_max + 1), dtype=np.uint8)
+        pts_int = trunk_pts.astype(np.int32).reshape((-1, 1, 2))
+        cv2.fillPoly(raster, [pts_int], 255)
+
         widths_px = []  # 儲存每條有效切片的像素寬度
 
         for offset in range(-half, half):
+            y = int(target_y + offset)
 
-            # 這條切片的 y 座標
-            y = target_y + offset
-
-            # ── 找出這條切片上的輪廓點 ───────────────────────
-            #
-            # 為什麼用「± 1.0」的容差，而不是剛好等於 y？
-            # YOLO 的輪廓點是浮點數，不保證剛好落在整數 y 值上
-            # 用容差 1.0 確保能找到附近的點
-            #
-            # trunk_pts[:, 1] 是所有點的 y 座標
-            # np.abs(...) 計算每個點的 y 和目標 y 的距離
-            # <= 1.0 篩出距離在 1 個像素內的點
-            nearby = trunk_pts[
-                np.abs(trunk_pts[:, 1] - y) <= 1.0
-            ]
-
-            # 至少需要 2 個點才能算寬度（左邊緣 + 右邊緣）
-            # 只有 0 或 1 個點的切片跳過
-            if len(nearby) < 2:
+            # 確保 y 在 bitmap 範圍內
+            if y < 0 or y >= raster.shape[0]:
                 continue
 
-            # 用 x 座標的範圍算這條切片的像素寬度
-            # max(x) - min(x) = 右邊緣 x - 左邊緣 x = 樹幹寬度
-            width = nearby[:, 0].max() - nearby[:, 0].min()
+            # 找出該行所有被填充的 x 座標
+            xs = np.where(raster[y, :] > 0)[0]
+
+            # 至少要有左右兩個邊緣點才能算寬度
+            if len(xs) < 2:
+                continue
+
+            width = float(xs[-1] - xs[0])
             widths_px.append(width)
 
         # ── 第二步：檢查有效切片是否足夠 ─────────────────────

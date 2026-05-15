@@ -61,3 +61,24 @@ class CarbonCalculator:
             "carbon_kg":  round(carbon_kg,  2),
             "co2_kg":     round(co2_kg,     2),
         }
+
+    def calculate_annual(self, dbh_cm: float, species: dict, tree_age: int = None) -> float:
+        """
+        計算年平均固碳量（kg CO₂/年）。
+
+        有提供樹齡：年平均固碳量 = 總固碳量 ÷ 樹齡
+        未提供樹齡：使用生長增量法，ΔD 取 species["annual_dbh_growth_cm"]
+        """
+        if tree_age is not None and tree_age > 0:
+            total = self.calculate(dbh_cm, species)
+            return round(total["co2_kg"] / tree_age, 2)
+
+        delta_d = float(species.get("annual_dbh_growth_cm", 1.0))
+        a  = float(species["a"])
+        b  = float(species["b"])
+        cf = float(species.get("carbon_fraction", 0.47))
+
+        biomass_now  = a * (dbh_cm ** b)
+        biomass_next = a * ((dbh_cm + delta_d) ** b)
+        annual_co2   = (biomass_next - biomass_now) * cf * self.CO2_CONVERSION
+        return round(annual_co2, 2)

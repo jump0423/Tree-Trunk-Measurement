@@ -58,7 +58,9 @@ class InputHandler:
 
     def get_camera_params(self) -> tuple:
         """
-        用文字輸入對話框詢問使用者相機的焦距和感光元件寬度。
+        先讓使用者選擇手機型號。
+        內建型號會直接使用 config.CAMERA_PRESETS 的相機參數；
+        選「其他」時，才用文字輸入對話框詢問焦距和感光元件寬度。
 
         這兩個參數是「方法二（焦距公式）」用來計算比例尺的必要資訊。
         通常可以在相機規格表或鏡頭包裝上找到。
@@ -73,6 +75,22 @@ class InputHandler:
         # 建立隱藏的根視窗（只讓對話框出現）
         root = tk.Tk()
         root.withdraw()
+
+        phone_model = self._ask_choice(
+            root,
+            title="手機型號選擇",
+            prompt="請選擇拍攝照片使用的手機型號",
+            choices=config.PHONE_MODEL_OPTIONS,
+        )
+
+        if phone_model != config.PHONE_MODEL_OTHER:
+            root.destroy()
+            preset = config.CAMERA_PRESETS[phone_model]
+            focal_mm = float(preset["focal_mm"])
+            sensor_w = float(preset["sensor_width_mm"])
+            print(f"手機型號：{phone_model}")
+            print(f"相機參數：焦距 {focal_mm}mm，感光元件寬度 {sensor_w}mm")
+            return focal_mm, sensor_w
 
         # ── 詢問焦距 ──────────────────────────────────────────
         focal_str = self._ask_value(
@@ -191,6 +209,32 @@ class InputHandler:
 
         # 去掉前後空白，避免使用者不小心輸入空白鍵
         return value.strip()
+
+    def _ask_choice(self, root: tk.Tk, title: str, prompt: str, choices: list) -> str:
+        """
+        用編號清單讓使用者選擇一個選項。
+
+        回傳值：
+            str：被選中的選項文字
+        """
+        from tkinter import simpledialog
+
+        lines = [prompt, ""]
+        for idx, choice in enumerate(choices, start=1):
+            lines.append(f"{idx}. {choice}")
+
+        value = simpledialog.askinteger(
+            title=title,
+            prompt="\n".join(lines),
+            parent=root,
+            minvalue=1,
+            maxvalue=len(choices),
+        )
+
+        if value is None:
+            raise ValueError(f"使用者取消了輸入（{title}），程式結束")
+
+        return choices[value - 1]
 
     def _validate_distance(self, d: float) -> bool:
         """
