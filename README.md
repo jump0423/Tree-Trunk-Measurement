@@ -216,20 +216,20 @@ training_files/    — 類別 （資料夾）
 | --- | --- | --- | --- |
 | main.py | main() | 共用調整 | 入口層 |
 | config.py | （全域常數） | 共用調整 | 設定層 |
-| best.pt | （模型權重檔） | 朋友 | 根目錄 |
-| requirements.txt | （設定檔） | 共用調整 | 根目錄 |
-| .gitignore | （設定檔） | 朋友 | 根目錄 |
-| src/__init__.py | （空檔案） | 朋友 | src 套件 |
-| src/models.py | MeasurementResult | 共用調整 | 資料模型層 |
-| src/trunk_detector.py | TrunkDetector | 輔負責 | 偵測層 |
-| src/qr_detector.py | QRDetector | 朋友 | 偵測層 |
-| src/geometry.py | GeometryEngine | 我新增 | 計算層 |
-| src/qr_calculator.py | QRCalculator | 朋友 | 計算層 |
-| src/focal_calculator.py | FocalCalculator | 輔負責 | 計算層 |
-| src/validator.py | Validator | 共用調整 | 驗證層 |
-| src/input_handler.py | InputHandler | 輔負責 | 輸入輸出層 |
-| src/visualizer.py | Visualizer | 共用調整 | 輸入輸出層 |
-| src/file_manager.py | FileManager | 輔負責 | 輸入輸出層 |
-| src/error_checker.py | ErrorChecker | 我新增 | 選配 |
-| measured_result/ | （自動產生） | 朋友 | 輸出目錄 |
-| training_files/ | （資料夾） | 朋友 | 訓練檔案 |
+| best.pt | （模型權重檔）  | 根目錄 |
+| requirements.txt | （設定檔) | 根目錄 |
+| .gitignore | （設定檔） |根目錄 |
+| src/__init__.py | （空檔案） |src 套件 |
+| src/models.py | MeasurementResult |資料模型層 |
+| src/trunk_detector.py | TrunkDetector |偵測層 |
+| src/qr_detector.py | QRDetector |偵測層 |
+| src/geometry.py | GeometryEngine |計算層 |
+| src/qr_calculator.py | QRCalculator |計算層 |
+| src/focal_calculator.py | FocalCalculator |計算層 |
+| src/validator.py | Validator |驗證層 |
+| src/input_handler.py | InputHandler | 輸入輸出層 |
+| src/visualizer.py | Visualizer | 輸入輸出層 |
+| src/file_manager.py | FileManager |輸入輸出層 |
+| src/error_checker.py | ErrorChecker |選配 |
+| measured_result/ | （自動產生） | 輸出目錄 |
+| training_files/ | （資料夾） | 訓練檔案 |
